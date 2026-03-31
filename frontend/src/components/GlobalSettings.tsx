@@ -153,6 +153,19 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                 <p className="text-[10px] text-nebula-muted mt-1">Default execution timeout for new agents. Each agent can override this in their settings.</p>
               </div>
 
+              {/* Task stagger */}
+              <div>
+                <label className="text-xs text-nebula-muted block mb-1">Task Stagger Delay (minutes)</label>
+                <input
+                  type="number"
+                  value={Math.round(parseInt(settings.task_stagger_ms || '0') / 60000)}
+                  onChange={e => updateSetting('task_stagger_ms', String((parseInt(e.target.value) || 0) * 60000))}
+                  min={0} max={30}
+                  className="w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded text-sm text-nebula-text focus:outline-none focus:border-nebula-accent"
+                />
+                <p className="text-[10px] text-nebula-muted mt-1">Delay between concurrent cron tasks to avoid API rate limits. 0 = no stagger (all fire simultaneously).</p>
+              </div>
+
               {/* Org overview */}
               {status && (
                 <div>

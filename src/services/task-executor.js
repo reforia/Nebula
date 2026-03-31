@@ -59,9 +59,11 @@ export async function executeTask(task, agent, prompt, opts = {}) {
     maxTurns: task.max_turns,
     priority: false,
     conversationId: taskConvId,
+    ...(task.timeout_ms && { timeoutMs: task.timeout_ms }),
   };
   if (isProjectTask) {
     execOptions.projectId = task.project_id;
+    // Project timeout overrides task timeout if set
     const project = getOne('SELECT timeout_ms FROM projects WHERE id = ?', [task.project_id]);
     if (project?.timeout_ms) execOptions.timeoutMs = project.timeout_ms;
     const deliverable = getOne(
@@ -124,7 +126,7 @@ export async function executeTask(task, agent, prompt, opts = {}) {
       );
     }
   } catch (err) {
-    console.error(`[${source}] Task "${task.name}" failed:`, err.message);
+    console.error(`[${source}] Task "${task.name}" for agent "${agent.name}" failed:`, err.message);
 
     insertMessage({
       agentId: agent.id, conversationId: taskConvId, role: 'assistant',

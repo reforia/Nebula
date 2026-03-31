@@ -1,8 +1,14 @@
 import { Cron } from 'croner';
 import { getAll, getOne } from '../db.js';
+import { getOrgSetting } from '../db.js';
 import { executeTask } from './task-executor.js';
 
 const activeCrons = new Map(); // taskId -> Cron instance
+
+// Stagger queue — when multiple cron tasks fire at the same time,
+// space them out by `task_stagger_ms` to avoid rate limit exhaustion.
+const staggerQueue = [];
+let staggerRunning = false;
 
 export function validateCron(expression) {
   try {
@@ -32,9 +38,7 @@ export function registerCron(task) {
   }
 
   const job = new Cron(task.cron_expression, () => {
-    fireTask(task.id).catch(err => {
-      console.error(`[scheduler] Unhandled error in task ${task.id}:`, err.message);
-    });
+    enqueueFire(task.id);
   });
 
   activeCrons.set(task.id, job);
@@ -46,6 +50,42 @@ export function unregisterCron(taskId) {
     existing.stop();
     activeCrons.delete(taskId);
   }
+}
+
+function enqueueFire(taskId) {
+  staggerQueue.push(taskId);
+  if (!staggerRunning) processStaggerQueue();
+}
+
+async function processStaggerQueue() {
+  staggerRunning = true;
+
+  while (staggerQueue.length > 0) {
+    const taskId = staggerQueue.shift();
+
+    // Fire-and-forget — don't wait for task completion before starting the next
+    fireTask(taskId).catch(err => {
+      console.error(`[scheduler] Unhandled error in task ${taskId}:`, err.message);
+    });
+
+    // If more tasks are queued, wait the stagger interval before firing the next
+    if (staggerQueue.length > 0) {
+      const staggerMs = getStaggerMs();
+      if (staggerMs > 0) {
+        console.log(`[scheduler] Staggering next task by ${staggerMs}ms (${staggerQueue.length} remaining)`);
+        await new Promise(r => setTimeout(r, staggerMs));
+      }
+    }
+  }
+
+  staggerRunning = false;
+}
+
+function getStaggerMs() {
+  // Check all orgs for a stagger setting — in practice there's usually one active org.
+  // Use the first non-zero value found.
+  const row = getOne("SELECT value FROM org_settings WHERE key = 'task_stagger_ms' AND CAST(value AS INTEGER) > 0 LIMIT 1");
+  return parseInt(row?.value) || 0;
 }
 
 export async function fireTask(taskId) {

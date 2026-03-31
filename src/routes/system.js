@@ -19,6 +19,7 @@ router.get('/settings', (req, res) => {
     'notify_email_to', 'notifications_enabled',
     'imap_host', 'imap_port', 'imap_user', 'imap_pass', 'mail_enabled',
     'default_timeout_ms',
+    'task_stagger_ms',
     'default_runtime',
     'cleanup_enabled', 'cleanup_cron', 'cleanup_sessions', 'cleanup_worktrees',
   ];
@@ -47,6 +48,7 @@ router.put('/settings', (req, res) => {
     'notify_email_to', 'notifications_enabled',
     'imap_host', 'imap_port', 'imap_user', 'imap_pass', 'mail_enabled',
     'default_timeout_ms',
+    'task_stagger_ms',
     'default_runtime',
     'cleanup_enabled', 'cleanup_cron', 'cleanup_sessions', 'cleanup_worktrees',
   ];

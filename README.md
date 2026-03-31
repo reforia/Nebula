@@ -2,21 +2,6 @@
 
 Self-hosted AI agent platform. Create, manage, and orchestrate multiple AI agents backed by persistent CLI sessions with cross-agent communication, custom skills, and scheduled tasks.
 
-> **Status:** Active development. See the [Dev Feature Doc](https://nebula.enigmaetmt.com/docs) for the roadmap and current feature status.
-
-<img align="center" width="1302" height="808" alt="image" src="https://github.com/user-attachments/assets/3e266c0b-2f10-4b66-8651-f50fb99fdfe4" />
-
-<img align="center" width="1084" height="537" alt="image" src="https://github.com/user-attachments/assets/c015bf8e-4ded-46a9-baf1-cc240c0d10ff" />
-
-## Auth Modes
-
-Nebula supports two authentication modes:
-
-- **Local** (default) — Email/password, fully offline. No external account or internet connection required. Recommended for personal use and air-gapped environments.
-- **Enigma** — OAuth via the [Enigma Platform](https://enigmaetmt.com). Provides account management, license validation, and usage telemetry. Set `AUTH_PROVIDER=enigma` in your `.env` to enable.
-
-Both modes provide the identical feature set. The only difference is how users authenticate.
-
 ## Features
 
 - **Multi-agent management** — Create agents with distinct roles, knowledge, and tool access. Each agent runs in its own persistent CLI session.
@@ -36,7 +21,7 @@ Both modes provide the identical feature set. The only difference is how users a
 ### Docker (recommended)
 
 ```bash
-git clone https://github.com/reforia/Nebula.git
+git clone https://github.com/enigma-labs/Nebula.git
 cd Nebula
 cp .env.example .env
 
@@ -51,7 +36,7 @@ Open `http://localhost:8080` — the setup wizard walks you through creating an 
 ### From Source
 
 ```bash
-git clone https://github.com/reforia/Nebula.git
+git clone https://github.com/enigma-labs/Nebula.git
 cd Nebula
 
 npm install
@@ -69,39 +54,6 @@ DATA_DIR=./data npm start
   - [Codex CLI](https://github.com/openai/codex) (`codex`)
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)
 
-## Feature Highlights
-### Projects - Multi-Agent Collaboration with Git and External Resources
-<p align="center">
-<img width="1909" height="952" alt="image" src="https://github.com/user-attachments/assets/84e9da68-6a37-47fb-9fa8-a4d7f02c0981" />
-</p>
-
-### Template Hub
-<p align="center">
-<img width="507" height="870" alt="image" src="https://github.com/user-attachments/assets/b9084d7c-d91e-4925-8192-9773ae5033d3" />
-</p>
-
-### Multi CLI Runtime Support
-<p align="center">
-<img width="512" height="945" alt="image" src="https://github.com/user-attachments/assets/6fdfc4b5-a481-443f-ba21-f789ad516e53" />
-</p>
-
-### Secret Redaction
-<p align="center">
-<img width="510" height="939" alt="image" src="https://github.com/user-attachments/assets/8cd51e38-b066-49d3-b9cd-1e621a0b066f" />
-</p>
-
-### Auto Session Cleanup
-<p align="center">
-<img align="center" width="502" height="275" alt="image" src="https://github.com/user-attachments/assets/0eefba9f-5d8d-468d-9b86-9e81e7d2cf0b" />
-</p>
-
-### Agent Cross Communications - @Someone pulls them to conversation, @notify Someone tells someone about something
-<p align="center">
-<img width="290" height="270" alt="image" src="https://github.com/user-attachments/assets/55fccd10-b5b5-45d9-b054-830b345d6041" />
-</p>
-
-### And many, many more
-Layered Memory Management, Soul/Body splition, Org - Agent - Project context aggregation, Webhook, MCP, etc. Full features can be found [here](https://nebula.enigmaetmt.com/docs)
 ## Architecture
 
 Single container: Node.js 22, Express backend, React frontend (served as static), SQLite via better-sqlite3.
@@ -173,19 +125,6 @@ Agents can run on external machines, connecting back to Nebula via WebSocket:
 
 - **Agent App** (`agent-app/`) — Tauri desktop app (macOS, Windows) with GUI
 - **Agent Client** (`agent-client/`) — Headless CLI client for servers
-
-## Contributing
-
-Nebula is in **beta** — all features are functional but need broader testing across environments before we call them stable. We're looking for help in these areas:
-
-- **CLI runtime testing** — Does Nebula work well with your preferred CLI (Claude Code, OpenCode, Codex, Gemini CLI)? Edge cases, session persistence, auth quirks.
-- **External knowledge bases** — Confluence, Notion, YouTrack integrations in the memory search fan-out. Different instance configs, permission models, large result sets.
-- **Remote agent setups** — Agent App and Agent Client on different OS/network configurations. NAT traversal, reconnection behavior, large file transfers.
-- **Project coordination** — Multi-agent git workflows across branches. Merge conflict handling, worktree isolation, concurrent execution.
-- **Self-hosted environments** — NAS boxes, Raspberry Pi, VPS, Kubernetes. Different Docker versions, resource-constrained systems, non-standard setups.
-- **General usage** — Anything that breaks, feels wrong, or could be better. Bug reports, UX feedback, performance observations.
-
-If you find an issue or have a suggestion, [open an issue](https://github.com/reforia/Nebula/issues). PRs welcome — see the [Dev Feature Doc](https://nebula.enigmaetmt.com/docs) for the full feature list and current status.
 
 ## License
 
