@@ -137,6 +137,19 @@ Agents can run on external machines, connecting back to Nebula via WebSocket:
 - **Agent App** (`agent-app/`) — Tauri desktop app (macOS, Windows) with GUI
 - **Agent Client** (`agent-client/`) — Headless CLI client for servers
 
+## Contributing
+
+Nebula is in **beta** — all features are functional but need broader testing across environments before we call them stable. We're looking for help in these areas:
+
+- **CLI runtime testing** — Does Nebula work well with your preferred CLI (Claude Code, OpenCode, Codex, Gemini CLI)? Edge cases, session persistence, auth quirks.
+- **External knowledge bases** — Confluence, Notion, YouTrack integrations in the memory search fan-out. Different instance configs, permission models, large result sets.
+- **Remote agent setups** — Agent App and Agent Client on different OS/network configurations. NAT traversal, reconnection behavior, large file transfers.
+- **Project coordination** — Multi-agent git workflows across branches. Merge conflict handling, worktree isolation, concurrent execution.
+- **Self-hosted environments** — NAS boxes, Raspberry Pi, VPS, Kubernetes. Different Docker versions, resource-constrained systems, non-standard setups.
+- **General usage** — Anything that breaks, feels wrong, or could be better. Bug reports, UX feedback, performance observations.
+
+If you find an issue or have a suggestion, [open an issue](https://github.com/reforia/Nebula/issues). PRs welcome — see the [Dev Feature Doc](https://nebula.enigmaetmt.com/docs) for the full feature list and current status.
+
 ## License
 
 [AGPL-3.0](LICENSE) — free to use, modify, and self-host. Network use requires source disclosure of modifications.
