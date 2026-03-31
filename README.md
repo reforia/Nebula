@@ -2,7 +2,7 @@
 
 Self-hosted AI agent platform. Create, manage, and orchestrate multiple AI agents backed by persistent CLI sessions with cross-agent communication, custom skills, and scheduled tasks.
 
-> **Status:** Active development. See the [Dev Feature Doc](https://nebula.enigmaetmt.com) for the roadmap and current feature status.
+> **Status:** Active development. See the [Dev Feature Doc](https://nebula.enigmaetmt.com/docs) for the roadmap and current feature status.
 
 ## Auth Modes
 
