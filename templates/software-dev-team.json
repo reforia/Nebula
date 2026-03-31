@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "name": "Software Development Team",
+  "description": "Agents for a software team: project manager for standups and sprint tracking, code reviewer, DevOps monitor, security analyst, and documentation writer. Includes daily standups, weekly retrospectives, and automated dependency checks.",
+  "icon": "\ud83d\udcbb",
+  "agents": [
+    {
+      "name": "Project Manager",
+      "role": "Engineering program manager. Runs daily standups by reviewing git activity and agent conversations, tracks sprint progress, flags blockers, coordinates across agents using @AgentName, and compiles weekly retrospectives.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [
+        {
+          "name": "Morning Standup",
+          "cron": "0 9 * * 1-5",
+          "prompt": "Run the morning standup. Review git commits since yesterday, check CI/CD status, review peer agent conversations for updates. Compile a brief standup summary: what was done, what's planned today, any blockers. Post in conversation and email the team.",
+          "enabled": true
+        },
+        {
+          "name": "Weekly Retrospective",
+          "cron": "0 17 * * 5",
+          "prompt": "Compile the weekly retrospective. Aggregate all daily standups, highlight completed features, open blockers, technical debt addressed, and priorities for next week. Email the full report.",
+          "enabled": true
+        }
+      ],
+      "skills": []
+    },
+    {
+      "name": "Code Reviewer",
+      "role": "Senior code reviewer. Reviews pull requests for code quality, security, performance, and adherence to team conventions. Checks for common anti-patterns, suggests improvements, and flags potential issues before merge.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [],
+      "skills": []
+    },
+    {
+      "name": "DevOps",
+      "role": "Infrastructure and CI/CD engineer. Monitors build pipelines, deployment health, container status, and infrastructure metrics. Troubleshoots failed builds, optimizes CI/CD pipelines, manages Docker configurations, and ensures deployment reliability.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [
+        {
+          "name": "Morning Health Check",
+          "cron": "0 8 * * *",
+          "prompt": "Run the morning infrastructure health check. Check CI/CD pipeline status, recent build failures, container health, disk usage, and any alerts. Report findings and flag anything requiring attention.",
+          "enabled": true
+        }
+      ],
+      "skills": []
+    },
+    {
+      "name": "Security",
+      "role": "Application security analyst. Monitors dependency vulnerabilities, reviews security-sensitive code changes, tracks CVE advisories relevant to the tech stack, and produces security audit reports.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [
+        {
+          "name": "Weekly Dependency Audit",
+          "cron": "0 10 * * 1",
+          "prompt": "Run a dependency security audit. Check for known vulnerabilities in project dependencies (npm audit, pip audit, etc.). Cross-reference with recent CVE advisories. Report findings with severity levels and recommended actions.",
+          "enabled": true
+        }
+      ],
+      "skills": []
+    },
+    {
+      "name": "Docs",
+      "role": "Technical documentation writer. Maintains API documentation, architecture decision records, onboarding guides, and runbooks. Reviews code changes for documentation impact and keeps docs in sync with the codebase.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Write,Edit,Grep,Glob,WebFetch,Bash",
+      "timeout_ms": null,
+      "tasks": [],
+      "skills": []
+    }
+  ],
+  "skills": [],
+  "mcp_servers": []
+}

@@ -1,0 +1,33 @@
+{
+  "name": "nebula",
+  "version": "1.0.0",
+  "description": "Self-hosted AI agent management backed by persistent Claude Code sessions",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "build:frontend": "cd frontend && npm install && npm run build",
+    "init-db": "node scripts/init-db.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@mozilla/readability": "^0.5.0",
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.10.0",
+    "cookie-parser": "^1.4.7",
+    "croner": "^10.0.1",
+    "express": "^4.21.2",
+    "imapflow": "^1.2.15",
+    "jsonwebtoken": "^9.0.3",
+    "linkedom": "^0.18.9",
+    "marked": "^17.0.4",
+    "node-pty": "^1.0.0",
+    "nodemailer": "^6.9.16",
+    "strip-ansi": "^7.1.0",
+    "turndown": "^7.2.0",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.0"
+  }
+}

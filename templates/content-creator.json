@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "name": "Content Creator",
+  "description": "Team for content-driven businesses: editorial manager for content calendars and publishing workflows, SEO analyst tracking search rankings and keyword opportunities, social media monitor tracking mentions and engagement, and a research assistant for topic sourcing. Integrates with Google Search Console, Reddit, and Hacker News.",
+  "icon": "\ud83d\udcdd",
+  "agents": [
+    {
+      "name": "Editorial",
+      "role": "Editorial manager. Plans content calendars, coordinates article production, tracks publishing schedules, reviews drafts for quality and consistency, and ensures all content aligns with brand voice and SEO strategy.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Write,Edit,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [
+        {
+          "name": "Weekly Content Plan",
+          "cron": "0 9 * * 1",
+          "prompt": "Review last week's published content performance. Check what Research and SEO agents found this week. Propose 3-5 content topics for this week with:\n- Working title\n- Target keyword (from SEO agent's findings)\n- Angle/hook\n- Target publish date\n\nPost the plan in conversation and email it.",
+          "enabled": true
+        }
+      ],
+      "skills": []
+    },
+    {
+      "name": "SEO",
+      "role": "Search engine optimization analyst. Monitors keyword rankings, identifies content gaps, tracks competitor content strategies, analyzes search trends, and provides data-driven recommendations for content optimization.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [
+        {
+          "name": "Weekly Keyword Report",
+          "cron": "0 8 * * 1",
+          "prompt": "Run weekly SEO analysis:\n1. Check Google Search Console for ranking changes (use the /google-search-console skill if configured)\n2. Research trending topics in our niche using WebSearch\n3. Identify 5-10 keyword opportunities (low competition, rising interest)\n4. Check competitor content published this week\n\nPost findings and email full report.",
+          "enabled": true
+        }
+      ],
+      "skills": [
+        {
+          "name": "google-search-console",
+          "description": "Query Google Search Console API for search performance data. Use when analyzing keyword rankings, click-through rates, and search impressions.",
+          "content": "# Google Search Console API\n\nQuery search analytics data.\n\n## Authentication\nUse the GSC API with a service account key.\n\n## Endpoints\n\n### Search Analytics\n```bash\ncurl -s -X POST \\\n  'https://www.googleapis.com/webmasters/v3/sites/{{GSC_SITE_URL}}/searchAnalytics/query' \\\n  -H 'Authorization: Bearer {{GSC_ACCESS_TOKEN}}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\n    \"startDate\": \"<7 days ago YYYY-MM-DD>\",\n    \"endDate\": \"<today YYYY-MM-DD>\",\n    \"dimensions\": [\"query\", \"page\"],\n    \"rowLimit\": 25\n  }'\n```\n\n## Notes\n- Dates must be in YYYY-MM-DD format\n- Data has a 2-3 day lag\n- If no GSC credentials configured, use WebSearch as fallback",
+          "enabled": false
+        }
+      ]
+    },
+    {
+      "name": "Social Monitor",
+      "role": "Social media intelligence agent. Tracks brand mentions, competitor activity, and trending discussions across Reddit, Hacker News, and social platforms. Identifies engagement opportunities and sentiment shifts.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [
+        {
+          "name": "Morning Social Scan",
+          "cron": "0 8 * * *",
+          "prompt": "Scan social channels for relevant discussions:\n1. Use /reddit-search to check for brand mentions and niche discussions\n2. Use /hackernews-search to check for relevant tech/startup discussions\n3. Search Twitter/X via WebSearch for brand mentions\n4. Flag any negative sentiment or crisis signals immediately\n\nPost a brief summary and email if anything requires action.",
+          "enabled": true
+        }
+      ],
+      "skills": [
+        {
+          "name": "reddit-search",
+          "description": "Search Reddit for discussions. Use when monitoring brand mentions, competitor discussions, or niche topics.",
+          "content": "# Reddit Search\n\nSearch Reddit using the public JSON API (no authentication needed).\n\n## Search posts\n```bash\ncurl -s -H 'User-Agent: Nebula/1.0' \\\n  'https://www.reddit.com/search.json?q=<URL-encoded query>&sort=new&limit=10&t=week'\n```\n\n## Search specific subreddit\n```bash\ncurl -s -H 'User-Agent: Nebula/1.0' \\\n  'https://www.reddit.com/r/<subreddit>/search.json?q=<query>&restrict_sr=on&sort=new&limit=10&t=week'\n```\n\n## Parse response\nResults are in `data.children[].data` \u2014 extract `title`, `selftext`, `url`, `permalink`, `score`, `num_comments`, `created_utc`.\n\nAlways prepend `https://www.reddit.com` to `permalink` for full URLs.",
+          "enabled": true
+        },
+        {
+          "name": "hackernews-search",
+          "description": "Search Hacker News for relevant discussions. Use when monitoring tech trends, startup news, or developer sentiment.",
+          "content": "# Hacker News Search (Algolia API)\n\nSearch HN stories and comments. No authentication needed.\n\n## Search stories\n```bash\ncurl -s 'https://hn.algolia.com/api/v1/search?query=<URL-encoded query>&tags=story&hitsPerPage=10'\n```\n\n## Search recent stories (last 7 days)\n```bash\ncurl -s 'https://hn.algolia.com/api/v1/search_by_date?query=<query>&tags=story&hitsPerPage=10&numericFilters=created_at_i>$(date -d \"7 days ago\" +%s)'\n```\n\n## Front page\n```bash\ncurl -s 'https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30'\n```\n\n## Parse response\nResults are in `hits[]` \u2014 extract `title`, `url`, `points`, `num_comments`, `objectID` (HN item ID).\nComment URL: `https://news.ycombinator.com/item?id=<objectID>`",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "Research",
+      "role": "Content research assistant. Deep-dives into topics, gathers data and statistics, finds expert sources and quotes, identifies unique angles, and prepares research briefs for the editorial team.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Write,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": 1800000,
+      "tasks": [],
+      "skills": []
+    }
+  ],
+  "skills": [
+    {
+      "name": "send-report",
+      "description": "Send a formatted report via email. Use when delivering findings, analysis, or scheduled scan results.",
+      "content": "# Send Report\n\nSend a formatted report via email using nebula-mail.\n\n## Format\n- Subject: [Agent Name] Report Type - Date\n- Body: Structured findings with source links\n- Always include URLs for every claim\n\nCall the nebula-mail skill to send after compiling your report.",
+      "enabled": true
+    }
+  ],
+  "mcp_servers": []
+}

@@ -1,0 +1,17 @@
+node_modules/
+dist/
+frontend/dist/
+frontend/node_modules/
+*.db
+*.db-journal
+*.log
+.env
+docker-compose.override.yml
+.DS_Store
+data/
+*.tsbuildinfo
+agent-app/node_modules/
+agent-app/src-tauri/target/
+agent-client/node_modules/
+agent-client/dist/
+CLAUDE.md

@@ -1,0 +1,22 @@
+services:
+  nebula:
+    build: .
+    container_name: nebula
+    restart: unless-stopped
+    user: "${NEBULA_UID:-1000}:${NEBULA_GID:-1000}"
+    ports:
+      - "${NEBULA_PORT:-8080}:8080"
+    volumes:
+      - ${NEBULA_DATA_DIR:-./data}:/data
+      - ${CLAUDE_AUTH_DIR:-./claude-auth}:/home/node/.claude
+      - ${SSH_KEYS_DIR:-./ssh-keys}:/home/node/.ssh:ro
+      # Add extra volumes in docker-compose.override.yml (e.g. NAS mounts)
+    environment:
+      - TZ=${TZ:-UTC}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
+      - NEBULA_ENCRYPTION_KEY=${NEBULA_ENCRYPTION_KEY}
+      - AUTH_PROVIDER=${AUTH_PROVIDER:-local}
+      - OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI:-}
+      - PLATFORM_URL=${PLATFORM_URL:-}

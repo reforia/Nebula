@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "name": "Starter",
+  "description": "A single general-purpose AI assistant to get started quickly",
+  "icon": "\ud83d\ude80",
+  "agents": [
+    {
+      "name": "Assistant",
+      "role": "General-purpose AI assistant. Helpful, concise, and capable of coding tasks, research, analysis, and automation.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash",
+      "timeout_ms": null,
+      "tasks": [],
+      "skills": []
+    }
+  ],
+  "skills": []
+}

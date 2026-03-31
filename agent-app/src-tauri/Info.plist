@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Nebula Agent needs access to run development tasks in your workspace.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Nebula Agent needs access to read and write project files.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Nebula Agent needs access to read downloaded files for tasks.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Nebula Agent may need to access external drives for builds.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Nebula Agent does not need photo access. Deny this request.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Nebula Agent does not need Music access. Deny this request.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Nebula Agent connects to your Nebula server over the local network.</string>
+</dict>
+</plist>

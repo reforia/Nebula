@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "name": "Indie Game Studio",
+  "description": "Multi-agent team for an indie game studio: secretary for daily briefings, marketing/monetization analysts, R&D lead, finance/compliance, and build server coordination. Includes morning/evening intelligence scans, weekly memos, and automated reporting.",
+  "icon": "\ud83c\udfae",
+  "agents": [
+    {
+      "name": "Secretary",
+      "role": "Chief of staff. Aggregates daily morning and evening briefings from all agents, compiles dev activity, manages email communications, coordinates across agents using @AgentName, compiles weekly summaries, and makes business strategy suggestions.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [
+        {
+          "name": "Morning Briefing",
+          "cron": "30 6 * * *",
+          "prompt": "Compile the morning briefing. Check emails via nebula-mail, review peer agent conversations for updates, check dev activity. Ensure all findings include source links for traceability. Produce a concise briefing and email the full report.",
+          "enabled": true
+        },
+        {
+          "name": "Evening Briefing",
+          "cron": "30 18 * * *",
+          "prompt": "Compile the evening briefing. Check emails via nebula-mail, review peer agent conversations for updates since morning, check dev activity. Ensure all findings include source links for traceability. Produce a concise briefing and email the full report.",
+          "enabled": true
+        },
+        {
+          "name": "Weekly Summary",
+          "cron": "0 20 * * 5",
+          "prompt": "Compile the weekly summary report. Aggregate all daily briefings from this week, highlight key achievements, blockers, and next week priorities. Email the full report.",
+          "enabled": true
+        }
+      ],
+      "skills": []
+    },
+    {
+      "name": "Marketing",
+      "role": "Market intelligence analyst. Researches gaming industry trends (digital and tabletop), tracks competitor releases and publisher deals, analyzes player sentiment, identifies potential publishers and marketing channels, and produces detailed findings for Secretary to aggregate.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [
+        {
+          "name": "Morning Scan",
+          "cron": "0 6 * * *",
+          "prompt": "Run your morning intelligence scan.\n\nYour domain: gaming industry news, competitor releases, publisher deals, player sentiment, Steam/BGG/Reddit trends, indie marketing channels.\n\nScope: Full sweep \u2014 external signals + any relevant internal activity.\n\nResearch with cross-checked sources, analyze relevance for every finding, post conversation brief, send full report via email.",
+          "enabled": true
+        },
+        {
+          "name": "Evening Scan",
+          "cron": "0 18 * * *",
+          "prompt": "Run your evening intelligence scan.\n\nYour domain: gaming industry news, competitor releases, publisher deals, player sentiment, indie marketing channels.\n\nScope: Developments SINCE this morning only. Do NOT re-report unchanged items. Flag anything that changed, escalated, or is newly confirmed. If nothing material changed, say so briefly.\n\nResearch with cross-checked sources, analyze relevance for every finding, post conversation brief, send full report via email.",
+          "enabled": true
+        },
+        {
+          "name": "Wednesday Memo",
+          "cron": "0 10 * * 3",
+          "prompt": "Produce a detailed weekly opportunity memo on marketing channels, publisher partnerships, and community engagement strategies for indie games.",
+          "enabled": true
+        }
+      ],
+      "skills": []
+    },
+    {
+      "name": "Monetization",
+      "role": "Commercial strategy analyst. Tracks pricing strategies across indie games and board games, evaluates monetization models (premium, DLC, crowdfunding, retail, licensing), monitors platform fee changes and regional pricing shifts, reviews competitor commercial performance.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [
+        {
+          "name": "Morning Scan",
+          "cron": "0 6 * * *",
+          "prompt": "Run your morning intelligence scan.\n\nYour domain: pricing strategies, monetization models (premium/DLC/F2P/crowdfunding/retail/licensing), platform fee changes (Steam/Epic/Apple/Google), regional pricing shifts, competitor commercial performance.\n\nScope: Full sweep \u2014 external signals + any relevant internal activity.\n\nResearch with cross-checked sources, analyze relevance for every finding, post conversation brief, send full report via email.",
+          "enabled": true
+        },
+        {
+          "name": "Evening Scan",
+          "cron": "0 18 * * *",
+          "prompt": "Run your evening intelligence scan.\n\nYour domain: pricing strategies, monetization models, platform fee changes, regional pricing shifts, competitor commercial performance.\n\nScope: Developments SINCE this morning only. Do NOT re-report unchanged items. Flag anything that changed, escalated, or is newly confirmed. If nothing material changed, say so briefly.\n\nResearch with cross-checked sources, analyze relevance for every finding, post conversation brief, send full report via email.",
+          "enabled": true
+        },
+        {
+          "name": "Wednesday Memo",
+          "cron": "0 10 * * 3",
+          "prompt": "Produce a detailed weekly opportunity memo on monetization models, pricing strategies, and revenue optimization for indie games.",
+          "enabled": true
+        }
+      ],
+      "skills": []
+    },
+    {
+      "name": "RnD",
+      "role": "Technology research lead. Researches emerging game design trends and mechanics, finds and evaluates open-source tools/plugins/engines/libraries, tracks papers/GDC talks/technical blogs, reviews dev activity, and produces findings for Secretary.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": 1800000,
+      "tasks": [
+        {
+          "name": "Morning Scan",
+          "cron": "0 6 * * *",
+          "prompt": "Run your morning intelligence scan.\n\nYour domain: engine updates, plugin ecosystem, game design trends, open-source tools, GDC/conference talks, technical papers, rendering techniques.\n\nScope: Full sweep \u2014 external signals + internal dev activity (check commits, build status).\n\nResearch with cross-checked sources, analyze relevance for every finding, post conversation brief, send full report via email.",
+          "enabled": true
+        },
+        {
+          "name": "Evening Scan",
+          "cron": "0 18 * * *",
+          "prompt": "Run your evening intelligence scan.\n\nYour domain: engine updates, plugin ecosystem, game design trends, open-source tools, technical papers.\n\nScope: Developments SINCE this morning only. Do NOT re-report unchanged items. Flag anything that changed, escalated, or is newly confirmed. If nothing material changed, say so briefly.\n\nResearch with cross-checked sources, analyze relevance for every finding, post conversation brief, send full report via email.",
+          "enabled": true
+        },
+        {
+          "name": "Wednesday Memo",
+          "cron": "0 10 * * 3",
+          "prompt": "Produce a detailed weekly opportunity memo on emerging tech, tools, and game design innovations relevant to the studio.",
+          "enabled": true
+        }
+      ],
+      "skills": []
+    },
+    {
+      "name": "Finance",
+      "role": "Corporate compliance and legal advisor. Tracks corporate compliance deadlines, reviews financial/legal documents, advises on contracts, licensing, IP, and distribution agreements, monitors regulatory changes, and flags urgent items to Secretary.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [
+        {
+          "name": "Monthly Compliance Check",
+          "cron": "0 9 1 * *",
+          "prompt": "Review upcoming corporate compliance deadlines for this month. Check annual returns, tax filings, business registration renewals. Flag urgent items to Secretary. Post findings and send email report.",
+          "enabled": true
+        },
+        {
+          "name": "Quarterly Doc Review",
+          "cron": "0 9 1 1,4,7,10 *",
+          "prompt": "Quarterly review of financial and legal documents. Check for missing filings, expiring contracts, or regulatory changes. Produce a compliance status report.",
+          "enabled": true
+        }
+      ],
+      "skills": []
+    }
+  ],
+  "skills": [
+    {
+      "name": "send-report",
+      "description": "Use when sending a structured report via email with source links. Use when you have findings, analysis, or scan results to deliver.",
+      "content": "# Send Report\n\nSend a formatted report via email using nebula-mail.\n\n## Format\n- Subject: [Agent Name] Report Type - Date\n- Body: Structured findings with source links\n- Always include cross-references and URLs\n\n## Usage\nCall the nebula-mail skill to send after compiling your report.",
+      "enabled": true
+    },
+    {
+      "name": "intelligence-scan",
+      "description": "Standardized intelligence scan and report workflow. Use for morning/evening scans. Enforces research quality, source credibility, cross-checking, and two-tier output (conversation brief + email full report).",
+      "content": "# Intelligence Scan\n\nStandardized research and reporting workflow.\n\n## Process\n1. **Research**: Use WebSearch and WebFetch to scan your domain\n2. **Cross-check**: Verify findings across multiple sources. Never report single-source claims as fact.\n3. **Relevance**: For each finding, explicitly state why it matters to the organization\n4. **Brief**: Post a concise summary in conversation (3-5 bullet points)\n5. **Full report**: Send detailed report via email with all sources linked\n\n## Quality rules\n- Every claim must have a source URL\n- Distinguish between confirmed news and rumors/speculation\n- Include date of original publication\n- If nothing material found, say so \u2014 a short 'no new signals' is better than filler",
+      "enabled": true
+    }
+  ],
+  "mcp_servers": []
+}

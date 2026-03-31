@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "name": "Open Source Maintainer",
+  "description": "For open source project maintainers: triage bot that monitors GitHub issues and PRs, release manager for changelog generation and version bumps, community manager tracking discussions and contributor activity, and a dependency monitor for security advisories. Integrates with GitHub API and npm/PyPI registries.",
+  "icon": "\ud83d\udd13",
+  "agents": [
+    {
+      "name": "Triage",
+      "role": "Issue and PR triage bot. Monitors GitHub repositories for new issues and pull requests, categorizes by priority and type, assigns labels, identifies duplicates, and flags items needing maintainer attention.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [
+        {
+          "name": "Morning Triage",
+          "cron": "0 8 * * *",
+          "prompt": "Check GitHub repos for new issues and PRs opened since yesterday.\n\nUse /github-issues skill to list recent items. For each:\n1. Classify: bug, feature, question, docs, or invalid\n2. Assess priority: critical (breaks users), high (significant impact), normal, low\n3. Check if it's a duplicate of an existing issue\n4. Suggest labels and assignee if obvious\n\nPost a triage summary in conversation and email if anything is critical.",
+          "enabled": true
+        }
+      ],
+      "skills": [
+        {
+          "name": "github-issues",
+          "description": "List and manage GitHub issues. Use when triaging new issues, checking PR status, or reviewing contributor activity.",
+          "content": "# GitHub Issues API\n\nManage issues via the GitHub REST API.\n\n## List recent issues\n```bash\ncurl -s -H 'Authorization: token {{GITHUB_TOKEN}}' \\\n  -H 'Accept: application/vnd.github.v3+json' \\\n  'https://api.github.com/repos/{{GITHUB_OWNER}}/{{GITHUB_REPO}}/issues?state=open&sort=created&direction=desc&per_page=20'\n```\n\n## List recent PRs\n```bash\ncurl -s -H 'Authorization: token {{GITHUB_TOKEN}}' \\\n  -H 'Accept: application/vnd.github.v3+json' \\\n  'https://api.github.com/repos/{{GITHUB_OWNER}}/{{GITHUB_REPO}}/pulls?state=open&sort=created&direction=desc&per_page=20'\n```\n\n## Add labels\n```bash\ncurl -s -X POST -H 'Authorization: token {{GITHUB_TOKEN}}' \\\n  -H 'Accept: application/vnd.github.v3+json' \\\n  'https://api.github.com/repos/{{GITHUB_OWNER}}/{{GITHUB_REPO}}/issues/<number>/labels' \\\n  -d '{\"labels\": [\"bug\", \"priority: high\"]}'\n```\n\n## Add comment\n```bash\ncurl -s -X POST -H 'Authorization: token {{GITHUB_TOKEN}}' \\\n  -H 'Accept: application/vnd.github.v3+json' \\\n  'https://api.github.com/repos/{{GITHUB_OWNER}}/{{GITHUB_REPO}}/issues/<number>/comments' \\\n  -d '{\"body\": \"<comment text>\"}'\n```",
+          "enabled": false
+        }
+      ]
+    },
+    {
+      "name": "Release Manager",
+      "role": "Handles release preparation: generates changelogs from merged PRs and commits, bumps version numbers, creates release notes, tags releases, and coordinates release announcements.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Write,Edit,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [],
+      "skills": []
+    },
+    {
+      "name": "Dependency Watch",
+      "role": "Dependency security monitor. Tracks CVE advisories, monitors npm/PyPI for vulnerable packages, checks if project dependencies are affected, and produces security reports with upgrade recommendations.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [
+        {
+          "name": "Weekly Security Scan",
+          "cron": "0 9 * * 1",
+          "prompt": "Run dependency security audit:\n1. Check npm audit / pip audit output for known vulnerabilities\n2. Use /npm-advisory skill to check for new advisories on key dependencies\n3. Search WebSearch for recent CVEs related to our tech stack\n4. For any found vulnerabilities: assess severity, check if we're affected, recommend upgrade path\n\nPost findings and email if anything is high/critical severity.",
+          "enabled": true
+        }
+      ],
+      "skills": [
+        {
+          "name": "npm-advisory",
+          "description": "Check npm registry for package advisories and latest versions. Use when auditing dependencies for security issues.",
+          "content": "# npm Registry API\n\nCheck package info and advisories. No authentication needed.\n\n## Get package info (latest version, dependencies)\n```bash\ncurl -s 'https://registry.npmjs.org/<package>/latest'\n```\n\n## Get all versions\n```bash\ncurl -s 'https://registry.npmjs.org/<package>' | jq '.versions | keys[-5:]'\n```\n\n## Check for advisories (bulk)\n```bash\ncurl -s -X POST 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"<package>\": [\"<current_version>\"]}'\n```\n\nEmpty response `{}` means no advisories. Non-empty means vulnerabilities found.",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "Community",
+      "role": "Community manager. Tracks contributor activity, monitors discussions and forums for project mentions, identifies first-time contributors for onboarding, and drafts community updates and announcements.",
+      "model": "claude-sonnet-4-6",
+      "allowed_tools": "Read,Grep,Glob,WebFetch,Bash,WebSearch",
+      "timeout_ms": null,
+      "tasks": [
+        {
+          "name": "Weekly Community Pulse",
+          "cron": "0 10 * * 5",
+          "prompt": "Compile weekly community activity report:\n1. Count new issues, PRs, and contributors this week\n2. Highlight first-time contributors (they deserve a welcome!)\n3. Check Reddit and HN for project mentions\n4. Note any trending discussions or feature requests\n5. Summarize overall project health and community sentiment\n\nPost summary and email.",
+          "enabled": true
+        }
+      ],
+      "skills": []
+    }
+  ],
+  "skills": [
+    {
+      "name": "send-report",
+      "description": "Send a formatted report via email with source links.",
+      "content": "# Send Report\n\nSend a formatted report via email using nebula-mail.\n\nFormat:\n- Subject: [Agent Name] Report - Date\n- Body: Structured findings with source links\n\nCall nebula-mail to send.",
+      "enabled": true
+    }
+  ],
+  "mcp_servers": []
+}

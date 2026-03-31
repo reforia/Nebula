@@ -1,0 +1,14 @@
+{
+  "name": "@nebula/agent-client",
+  "version": "1.7.0",
+  "description": "Remote agent client for Nebula — connects to Nebula server and runs Claude Code locally",
+  "type": "module",
+  "bin": {
+    "nebula-agent": "index.js"
+  },
+  "dependencies": {
+    "node-pty": "^1.0.0",
+    "strip-ansi": "^7.1.0",
+    "ws": "^8.18.0"
+  }
+}
