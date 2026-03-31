@@ -4,6 +4,10 @@ Self-hosted AI agent platform. Create, manage, and orchestrate multiple AI agent
 
 > **Status:** Active development. See the [Dev Feature Doc](https://nebula.enigmaetmt.com/docs) for the roadmap and current feature status.
 
+<img width="1302" height="808" alt="image" src="https://github.com/user-attachments/assets/3e266c0b-2f10-4b66-8651-f50fb99fdfe4" />
+
+<img width="1084" height="537" alt="image" src="https://github.com/user-attachments/assets/c015bf8e-4ded-46a9-baf1-cc240c0d10ff" />
+
 ## Auth Modes
 
 Nebula supports two authentication modes:
@@ -65,6 +69,27 @@ DATA_DIR=./data npm start
   - [Codex CLI](https://github.com/openai/codex) (`codex`)
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)
 
+## Feature Highlights
+### Projects - Multi-Agent Collaboration with Git and External Resources
+<img width="1909" height="952" alt="image" src="https://github.com/user-attachments/assets/84e9da68-6a37-47fb-9fa8-a4d7f02c0981" />
+
+### Template Hub
+<img width="507" height="870" alt="image" src="https://github.com/user-attachments/assets/b9084d7c-d91e-4925-8192-9773ae5033d3" />
+
+### Multi CLI Runtime Support
+<img width="512" height="945" alt="image" src="https://github.com/user-attachments/assets/6fdfc4b5-a481-443f-ba21-f789ad516e53" />
+
+### Secret Redaction
+<img width="510" height="939" alt="image" src="https://github.com/user-attachments/assets/8cd51e38-b066-49d3-b9cd-1e621a0b066f" />
+
+### Auto Session Cleanup
+<img width="502" height="275" alt="image" src="https://github.com/user-attachments/assets/0eefba9f-5d8d-468d-9b86-9e81e7d2cf0b" />
+
+### Agent Cross Communications - @Someone pulls them to conversation, @notify Someone tells someone about something
+<img width="290" height="270" alt="image" src="https://github.com/user-attachments/assets/55fccd10-b5b5-45d9-b054-830b345d6041" />
+
+### And many, many more
+Layered Memory Management, Soul/Body splition, Org - Agent - Project context aggregation, Webhook, MCP, etc [Features](https://nebula.enigmaetmt.com/docs)
 ## Architecture
 
 Single container: Node.js 22, Express backend, React frontend (served as static), SQLite via better-sqlite3.
