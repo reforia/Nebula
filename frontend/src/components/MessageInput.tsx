@@ -40,6 +40,9 @@ export default function MessageInput({ onSend, onCancel, disabled, isTyping, age
   const [mentionMode, setMentionMode] = useState<'mention' | 'command' | 'notify'>('mention');
   const [selectedIndex, setSelectedIndex] = useState(0);
 
+  // Reset autocomplete when switching agents/conversations
+  useEffect(() => { setMentionQuery(null); setSelectedIndex(0); }, [currentAgentId]);
+
   const peerAgents = useMemo(
     () => (agents || []).filter(a => a.id !== currentAgentId && a.enabled),
     [agents, currentAgentId]
