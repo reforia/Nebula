@@ -421,11 +421,13 @@ export interface CleanupStatus {
   cron: string;
   sessions: boolean;
   worktrees: boolean;
+  dreaming: boolean;
   nextRun: string | null;
   lastResult: {
     timestamp: string;
     sessions: { deleted: number; scanned: number } | null;
     worktrees: { deleted: number; removed: string[] } | null;
+    dreaming: { triggered: number } | null;
   } | null;
 }
 export const getCleanupStatus = () => request<CleanupStatus>('/api/cleanup/status');
