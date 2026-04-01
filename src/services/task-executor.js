@@ -11,6 +11,9 @@ import { insertMessage, resolveConversation } from './message-service.js';
  * resolve conversation, insert prompt message, enqueue execution,
  * save result/error, update task status, broadcast, notify.
  *
+ * Tasks run in the agent's main conversation (or project conversation),
+ * resuming the existing CC CLI session so the agent has full context.
+ *
  * @param {Object} task - Task row from DB
  * @param {Object} agent - Agent row from DB
  * @param {string} prompt - The prompt to send (task.prompt or webhook-enriched prompt)
@@ -24,41 +27,26 @@ export async function executeTask(task, agent, prompt, opts = {}) {
 
   console.log(`[${source}] Firing task "${task.name}" for agent "${agent.name}"${isProjectTask ? ` (project ${task.project_id})` : ''}`);
 
-  // Resolve where to POST the result for the user to see
-  const { conversationId: mainConversationId, broadcastExtra } = resolveConversation(agent.id, task.project_id);
-
-  // Tasks run in a dedicated conversation — never touch the main session.
-  // This prevents a cron task from resetting 100K tokens of user conversation history.
-  let taskConvId;
-  const existingTaskConv = getOne(
-    "SELECT id FROM conversations WHERE agent_id = ? AND title = 'Tasks' AND project_id IS NULL ORDER BY created_at DESC LIMIT 1",
-    [agent.id]
-  );
-  if (existingTaskConv) {
-    taskConvId = existingTaskConv.id;
-  } else {
-    taskConvId = generateId();
-    const taskSessionId = generateId();
-    run(
-      `INSERT INTO conversations (id, agent_id, title, session_id, session_initialized) VALUES (?, ?, 'Tasks', ?, 0)`,
-      [taskConvId, agent.id, taskSessionId]
-    );
-  }
+  // Resolve the agent's conversation (main or project-scoped).
+  // The executor will create one if none exists yet.
+  const { conversationId, broadcastExtra } = resolveConversation(agent.id, task.project_id);
 
   broadcastToOrg(orgId, { type: 'task_fired', agent_id: agent.id, task_name: task.name, ...broadcastExtra });
 
-  // Insert prompt into task conversation (not main)
-  insertMessage({
-    agentId: agent.id, conversationId: taskConvId, role: 'user', content: prompt, orgId,
-    messageType: 'task', taskName: task.name, isRead: true,
-    broadcastExtra, updateUnread: false,
-  });
+  // Insert prompt into the conversation
+  if (conversationId) {
+    insertMessage({
+      agentId: agent.id, conversationId, role: 'user', content: prompt, orgId,
+      messageType: 'task', taskName: task.name, isRead: true,
+      broadcastExtra, updateUnread: false,
+    });
+  }
 
-  // Build executor options — use task conversation for execution
+  // Build executor options
   const execOptions = {
     maxTurns: task.max_turns,
     priority: false,
-    conversationId: taskConvId,
+    ...(conversationId && { conversationId }),
     ...(task.timeout_ms && { timeoutMs: task.timeout_ms }),
   };
   if (isProjectTask) {
@@ -72,13 +60,6 @@ export async function executeTask(task, agent, prompt, opts = {}) {
     );
     execOptions.branchName = deliverable?.branch_name || null;
   }
-
-  // Reset task conversation session (fresh each run — tasks get context from skills + memory)
-  const newSessionId = generateId();
-  run(
-    "UPDATE conversations SET session_initialized = 0, session_id = ?, updated_at = datetime('now') WHERE id = ?",
-    [newSessionId, taskConvId]
-  );
 
   try {
     const result = await executor.enqueue(agent.id, prompt, execOptions);
@@ -100,17 +81,11 @@ export async function executeTask(task, agent, prompt, opts = {}) {
 
     const safeText = redactSecrets(resultText, orgId, agent.id);
 
-    // Post full result in the task conversation
-    insertMessage({
-      agentId: agent.id, conversationId: taskConvId, role: 'assistant', content: safeText, orgId,
-      messageType: 'task', taskName: task.name, metadata,
-      broadcastExtra,
-    });
-
-    // Cross-post to main conversation so user sees it without session disruption
-    if (mainConversationId && mainConversationId !== taskConvId) {
+    // Use the conversation the executor actually ran in (it may have created one)
+    const resultConvId = conversationId || resolveConversation(agent.id, task.project_id).conversationId;
+    if (resultConvId) {
       insertMessage({
-        agentId: agent.id, conversationId: mainConversationId, role: 'assistant', content: safeText, orgId,
+        agentId: agent.id, conversationId: resultConvId, role: 'assistant', content: safeText, orgId,
         messageType: 'task', taskName: task.name, metadata,
         broadcastExtra,
       });
@@ -128,18 +103,11 @@ export async function executeTask(task, agent, prompt, opts = {}) {
   } catch (err) {
     console.error(`[${source}] Task "${task.name}" for agent "${agent.name}" failed:`, err.message);
 
-    insertMessage({
-      agentId: agent.id, conversationId: taskConvId, role: 'assistant',
-      content: `Task failed: ${err.message}`, orgId,
-      messageType: 'error', taskName: task.name,
-      broadcastExtra,
-    });
-
-    // Cross-post error to main conversation
-    if (mainConversationId && mainConversationId !== taskConvId) {
+    const errorConvId = conversationId || resolveConversation(agent.id, task.project_id).conversationId;
+    if (errorConvId) {
       insertMessage({
-        agentId: agent.id, conversationId: mainConversationId, role: 'assistant',
-        content: `Task "${task.name}" failed: ${err.message}`, orgId,
+        agentId: agent.id, conversationId: errorConvId, role: 'assistant',
+        content: `Task failed: ${err.message}`, orgId,
         messageType: 'error', taskName: task.name,
         broadcastExtra,
       });

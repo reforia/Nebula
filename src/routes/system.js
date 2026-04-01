@@ -21,7 +21,7 @@ router.get('/settings', (req, res) => {
     'default_timeout_ms',
     'task_stagger_ms',
     'default_runtime',
-    'cleanup_enabled', 'cleanup_cron', 'cleanup_sessions', 'cleanup_worktrees',
+    'cleanup_enabled', 'cleanup_cron', 'cleanup_sessions', 'cleanup_worktrees', 'cleanup_dreaming',
   ];
 
   const secretKeys = ['smtp_pass', 'imap_pass'];
@@ -50,7 +50,7 @@ router.put('/settings', (req, res) => {
     'default_timeout_ms',
     'task_stagger_ms',
     'default_runtime',
-    'cleanup_enabled', 'cleanup_cron', 'cleanup_sessions', 'cleanup_worktrees',
+    'cleanup_enabled', 'cleanup_cron', 'cleanup_sessions', 'cleanup_worktrees', 'cleanup_dreaming',
   ];
 
   const settingSecretKeys = ['smtp_pass', 'imap_pass'];

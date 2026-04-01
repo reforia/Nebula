@@ -863,7 +863,17 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                     />
                     Stale worktrees
                   </label>
+                  <label className="flex items-center gap-2 text-[12px] text-nebula-text">
+                    <input
+                      type="checkbox"
+                      checked={settings.cleanup_dreaming !== '0'}
+                      onChange={e => updateSetting('cleanup_dreaming', e.target.checked ? '1' : '0')}
+                      className="accent-nebula-accent"
+                    />
+                    Agent dreaming
+                  </label>
                 </div>
+                <p className="text-[10px] text-nebula-muted -mt-1">Dreaming: each agent reviews and prunes stale CLAUDE.md entries, memories, and temp files during cleanup.</p>
 
                 <div className="flex items-center gap-3">
                   <button
@@ -907,6 +917,9 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                         )}
                         {cleanupStatus.lastResult.worktrees && (
                           <p className="text-nebula-muted">Worktrees: <span className="text-nebula-text">{cleanupStatus.lastResult.worktrees.deleted} removed{cleanupStatus.lastResult.worktrees.removed.length > 0 ? ` (${cleanupStatus.lastResult.worktrees.removed.join(', ')})` : ''}</span></p>
+                        )}
+                        {cleanupStatus.lastResult.dreaming && (
+                          <p className="text-nebula-muted">Dreaming: <span className="text-nebula-text">{cleanupStatus.lastResult.dreaming.triggered} agent(s) triggered</span></p>
                         )}
                       </>
                     )}

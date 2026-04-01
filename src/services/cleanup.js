@@ -18,6 +18,8 @@ import path from 'path';
 import { Cron } from 'croner';
 import { getAll, getOne, orgPath, getOrgSetting } from '../db.js';
 import { listBranches, removeWorktree } from './git.js';
+import { executeTask } from './task-executor.js';
+import { generateId } from '../utils/uuid.js';
 
 const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME || '/home/node', '.claude');
 const SESSIONS_DIR = path.join(CLAUDE_HOME, 'projects');
@@ -29,12 +31,13 @@ let lastResult = null;
 /** Read cleanup settings from the first org (single-tenant). */
 function getCleanupSettings(orgId) {
   const oid = orgId || getOne('SELECT id FROM organizations LIMIT 1')?.id;
-  if (!oid) return { enabled: true, cron: DEFAULT_CRON, sessions: true, worktrees: true };
+  if (!oid) return { enabled: true, cron: DEFAULT_CRON, sessions: true, worktrees: true, dreaming: true };
   return {
     enabled: (getOrgSetting(oid, 'cleanup_enabled') ?? '1') === '1',
     cron: getOrgSetting(oid, 'cleanup_cron') || DEFAULT_CRON,
     sessions: (getOrgSetting(oid, 'cleanup_sessions') ?? '1') === '1',
     worktrees: (getOrgSetting(oid, 'cleanup_worktrees') ?? '1') === '1',
+    dreaming: (getOrgSetting(oid, 'cleanup_dreaming') ?? '1') === '1',
   };
 }
 
@@ -166,6 +169,55 @@ function cleanEmptyDirs(dir) {
   } catch {}
 }
 
+const DREAMING_PROMPT = `You are running a scheduled maintenance cycle. Review and clean up your persistent state:
+
+1. **CLAUDE.md** — Read your CLAUDE.md. Remove entries that are resolved, outdated, or no longer relevant. Consolidate duplicates. Keep it concise and current.
+
+2. **Memories** — Use the /nebula-memory skill to search and review your memories. Delete memories that are stale, resolved, or superseded. Update any with outdated details.
+
+3. **Working directory** — Check for temporary files, logs, or artifacts that are no longer needed and clean them up.
+
+Be conservative — only remove things you are confident are stale. Summarize what you cleaned up.`;
+
+/**
+ * Trigger dreaming (self-maintenance) for all enabled agents in an org.
+ * Each agent is fired with a stagger delay to avoid rate limits.
+ * Returns immediately — executions run in the background.
+ */
+function triggerDreaming(orgId) {
+  const oid = orgId || getOne('SELECT id FROM organizations LIMIT 1')?.id;
+  if (!oid) return { triggered: 0 };
+
+  const agents = getAll('SELECT * FROM agents WHERE org_id = ? AND enabled = 1', [oid]);
+  if (agents.length === 0) return { triggered: 0 };
+
+  const staggerMs = parseInt(getOrgSetting(oid, 'task_stagger_ms')) || 0;
+
+  console.log(`[cleanup] Triggering dreaming for ${agents.length} agent(s)${staggerMs ? ` (stagger ${staggerMs}ms)` : ''}`);
+
+  // Fire agents sequentially with stagger, but don't await completion
+  (async () => {
+    for (let i = 0; i < agents.length; i++) {
+      const agent = agents[i];
+      const syntheticTask = {
+        id: generateId(), name: 'Dreaming', max_turns: 25,
+        timeout_ms: parseInt(getOrgSetting(oid, 'default_timeout_ms')) || 600000,
+        project_id: null,
+      };
+
+      executeTask(syntheticTask, agent, DREAMING_PROMPT, { source: 'dreaming' }).catch(err => {
+        console.error(`[cleanup] Dreaming failed for agent "${agent.name}":`, err.message);
+      });
+
+      if (staggerMs > 0 && i < agents.length - 1) {
+        await new Promise(r => setTimeout(r, staggerMs));
+      }
+    }
+  })();
+
+  return { triggered: agents.length };
+}
+
 /**
  * Run cleanup with current settings. Returns result summary.
  */
@@ -173,7 +225,7 @@ function performCleanup(orgId) {
   const settings = getCleanupSettings(orgId);
   if (!settings.enabled) return null;
 
-  const result = { timestamp: new Date().toISOString(), sessions: null, worktrees: null };
+  const result = { timestamp: new Date().toISOString(), sessions: null, worktrees: null, dreaming: null };
 
   if (settings.sessions) {
     try { result.sessions = cleanStaleSessions(); }
@@ -182,6 +234,10 @@ function performCleanup(orgId) {
   if (settings.worktrees) {
     try { result.worktrees = cleanStaleWorktrees(); }
     catch (err) { console.error('[cleanup] Worktree cleanup failed:', err.message); }
+  }
+  if (settings.dreaming) {
+    try { result.dreaming = triggerDreaming(orgId); }
+    catch (err) { console.error('[cleanup] Dreaming trigger failed:', err.message); }
   }
 
   lastResult = result;
