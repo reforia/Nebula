@@ -221,7 +221,7 @@ function triggerDreaming(orgId) {
 /**
  * Run cleanup with current settings. Returns result summary.
  */
-function performCleanup(orgId) {
+function performCleanup(orgId, { skipDreaming = false } = {}) {
   const settings = getCleanupSettings(orgId);
   if (!settings.enabled) return null;
 
@@ -235,7 +235,7 @@ function performCleanup(orgId) {
     try { result.worktrees = cleanStaleWorktrees(); }
     catch (err) { console.error('[cleanup] Worktree cleanup failed:', err.message); }
   }
-  if (settings.dreaming) {
+  if (settings.dreaming && !skipDreaming) {
     try { result.dreaming = triggerDreaming(orgId); }
     catch (err) { console.error('[cleanup] Dreaming trigger failed:', err.message); }
   }
@@ -267,8 +267,8 @@ function schedule(orgId) {
 
 /** Start the cleanup service. */
 export function initCleanupService() {
-  // Run on startup after a short delay
-  setTimeout(() => performCleanup(), 60_000);
+  // Run sessions + worktrees on startup, but skip dreaming (that's for the nightly cron)
+  setTimeout(() => performCleanup(undefined, { skipDreaming: true }), 60_000);
   schedule();
 }
 
