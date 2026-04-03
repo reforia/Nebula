@@ -33,7 +33,7 @@ class AgentExecutor extends EventEmitter {
 
   /**
    * Build a context-recovery preamble from Nebula message history.
-   * Used when a CC CLI session resets (branch change, stale session, etc.)
+   * Used when a CLI session resets (branch change, stale session, etc.)
    * so the agent doesn't lose all conversational context.
    * Approximates tokens at ~4 chars/token, returns empty string if no history.
    */
@@ -50,7 +50,7 @@ class AgentExecutor extends EventEmitter {
     for (const msg of messages) {
       if (!msg.content) continue;
       // Skip raw error dumps — they're noise for context recovery
-      if (msg.role === 'assistant' && msg.content.startsWith('Error: CC exit code')) continue;
+      if (msg.role === 'assistant' && msg.content.startsWith('Error:') && /exit code/i.test(msg.content)) continue;
       if (charCount + msg.content.length > charBudget) break;
       selected.unshift(msg); // restore chronological order
       charCount += msg.content.length;
@@ -245,9 +245,9 @@ class AgentExecutor extends EventEmitter {
       : orgPath(agentOrgId, 'agents', agentId);
     fs.mkdirSync(agentDir, { recursive: true });
 
-    // Branch change detection — CC CLI ties sessions to CWD, so when the branch
+    // Branch change detection — CLI runtimes tie sessions to CWD, so when the branch
     // changes (deliverable completed, agent moves to next), we must reset the
-    // session to avoid "No conversation found" errors from a CWD mismatch.
+    // session to avoid stale session errors from a CWD mismatch.
     const resolvedBranch = options.branchName || null;
     let sessionWasReset = false;
     if (conversation.session_initialized && conversation.session_branch !== resolvedBranch) {
@@ -1190,8 +1190,8 @@ Help the user complete the setup. Ask about your role if not set. Once you have 
             prompt: execPrompt, systemPrompt, agent, agentDir, conversation, options: execOpts,
           });
         } catch (execErr) {
-          // Stale session recovery — CC CLI returns "No conversation found with session ID"
-          // when the session was purged (container restart, CC cleanup, etc.)
+          // Stale session recovery — CLI runtimes may reject sessions that were
+          // purged (container restart, cleanup, etc.) or are locked by a prior run.
           // Reset session_initialized and retry with a fresh session, with context recovery
           const errMsg = String(execErr.message);
           const isStaleSession = /No conversation found with session ID/i.test(errMsg);

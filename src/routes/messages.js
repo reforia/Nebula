@@ -353,7 +353,7 @@ router.post('/:id/messages', async (req, res) => {
     displayConversationId = latest?.id || null;
   }
 
-  // Execution conversation is always the target agent's own (has the right CC session)
+  // Execution conversation is always the target agent's own (has the right CLI session)
   let execConversationId = displayConversationId;
   if (isAgentToAgent && conversation_id) {
     // Source conversation belongs to another agent — use target's own conversation for execution (exclude project conversations)

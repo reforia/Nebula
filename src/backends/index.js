@@ -17,17 +17,15 @@ export { registry };
 
 /**
  * Get a backend by cliId.
- * Falls back to claude-cli for backward compatibility with existing code
- * that passes unknown/null names.
+ * Falls back to the org/system default if the requested runtime is unknown.
  */
 export function getBackend(name) {
   try {
     return registry.get(name);
   } catch {
-    // Backward compat: fall back to first available or claude-cli
     const def = registry.getDefault();
     if (def) return def;
-    return registry.get('claude-cli');
+    throw new Error('No CLI runtime available — place a supported CLI binary in the runtimes volume');
   }
 }
 

@@ -168,6 +168,68 @@ export class ClaudeCLIBackend extends ExecutionBackend {
     return resultEvent;
   }
 
+  sessionExists(sessionId) {
+    const home = process.env.HOME || '/home/node';
+    const projectsDir = path.join(home, '.claude', 'projects');
+    if (!fs.existsSync(projectsDir)) return false;
+    for (const dir of fs.readdirSync(projectsDir)) {
+      const sessionFile = path.join(projectsDir, dir, `${sessionId}.jsonl`);
+      if (fs.existsSync(sessionFile)) return true;
+    }
+    return false;
+  }
+
+  cleanStaleSessions(activeSessionIds) {
+    const home = process.env.HOME || '/home/node';
+    const sessionsDir = path.join(home, '.claude', 'projects');
+    if (!fs.existsSync(sessionsDir)) return { deleted: 0, scanned: 0 };
+
+    let deleted = 0;
+    let scanned = 0;
+
+    for (const projectDir of fs.readdirSync(sessionsDir)) {
+      const fullDir = path.join(sessionsDir, projectDir);
+      if (!fs.statSync(fullDir).isDirectory()) continue;
+
+      for (const file of fs.readdirSync(fullDir)) {
+        if (!file.endsWith('.jsonl')) continue;
+        scanned++;
+        const sessionId = file.replace('.jsonl', '');
+        if (!activeSessionIds.has(sessionId)) {
+          try {
+            fs.unlinkSync(path.join(fullDir, file));
+            const companionDir = path.join(fullDir, sessionId);
+            if (fs.existsSync(companionDir) && fs.statSync(companionDir).isDirectory()) {
+              fs.rmSync(companionDir, { recursive: true });
+            }
+            deleted++;
+          } catch {}
+        }
+      }
+
+      try {
+        if (fs.readdirSync(fullDir).length === 0) fs.rmdirSync(fullDir);
+      } catch {}
+    }
+
+    if (deleted > 0) console.log(`[cleanup] Deleted ${deleted} stale Claude Code session(s) (scanned ${scanned})`);
+    return { deleted, scanned };
+  }
+
+  startupRecover() {
+    const home = process.env.HOME || '/home/node';
+    const configPath = path.join(home, '.claude.json');
+    const backupDir = path.join(home, '.claude', 'backups');
+    if (!fs.existsSync(configPath) && fs.existsSync(backupDir)) {
+      const backups = fs.readdirSync(backupDir).filter(f => f.startsWith('.claude.json.backup.')).sort();
+      if (backups.length > 0) {
+        const latest = backups[backups.length - 1];
+        fs.copyFileSync(path.join(backupDir, latest), configPath);
+        console.log(`[startup] Restored ${configPath} from ${latest}`);
+      }
+    }
+  }
+
   checkAuth() {
     if (!this.binaryPath) return { ok: false, error: 'Not installed' };
     try {

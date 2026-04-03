@@ -209,7 +209,7 @@ router.post('/import', (req, res) => {
         sessionId,
         agentDef.allowed_tools || 'Read,Grep,Glob,WebFetch,Bash',
         agentDef.model || 'claude-sonnet-4-6',
-        agentDef.backend || registry.getDefault(req.orgId)?.cliId || 'claude-cli',
+        agentDef.backend || registry.getDefault(req.orgId)?.cliId || '',
         agentDef.timeout_ms || null,
         agentDef.execution_mode || 'local',
       ]

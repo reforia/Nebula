@@ -61,7 +61,7 @@ router.post('/', (req, res) => {
       sessionId,
       allowed_tools || 'Read,Grep,Glob,WebFetch,Bash',
       model || 'claude-sonnet-4-6',
-      backend || registry.getDefault(req.orgId)?.cliId || 'claude-cli',
+      backend || registry.getDefault(req.orgId)?.cliId || '',
       security_tier || 'standard',
       notify_email !== undefined ? (notify_email ? 1 : 0) : 1,
     ]

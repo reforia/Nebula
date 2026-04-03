@@ -122,7 +122,7 @@ class CLIRegistry {
 
     // Nothing can run this model
     if (available.length === 0) {
-      throw new Error('No CLI runtime available — install Claude Code or OpenCode');
+      throw new Error('No CLI runtime available — place a supported CLI binary in the runtimes volume');
     }
     throw new Error(`No CLI runtime can execute model "${model}". Available runtimes: ${available.map(a => `${a.displayName} (${a.supportedModelPrefixes.join(', ') || 'any'})`).join(', ')}`);
   }

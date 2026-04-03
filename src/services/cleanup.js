@@ -4,11 +4,11 @@
  * Configurable via org settings:
  *   cleanup_enabled   — '1' or '0' (default: '1')
  *   cleanup_cron      — cron expression (default: '0 3 * * *')
- *   cleanup_sessions  — clean stale CC CLI sessions (default: '1')
+ *   cleanup_sessions  — clean stale CLI sessions (default: '1')
  *   cleanup_worktrees — clean stale project worktrees (default: '1')
  *
- * 1. CC CLI session files — deletes JSONL files whose session ID no longer
- *    matches any active conversation.
+ * 1. CLI session files — delegates to each adapter's cleanStaleSessions()
+ *    to delete session state not matching any active conversation.
  * 2. Project worktrees — removes worktree directories for branches that
  *    no longer exist in the project's git repo.
  */
@@ -20,9 +20,8 @@ import { getAll, getOne, orgPath, getOrgSetting } from '../db.js';
 import { listBranches, removeWorktree } from './git.js';
 import { executeTask } from './task-executor.js';
 import { generateId } from '../utils/uuid.js';
+import { registry } from '../backends/cli-registry.js';
 
-const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME || '/home/node', '.claude');
-const SESSIONS_DIR = path.join(CLAUDE_HOME, 'projects');
 const DEFAULT_CRON = '0 3 * * *';
 const SYS_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -43,46 +42,28 @@ function getCleanupSettings(orgId) {
 }
 
 /**
- * Delete CC CLI session files that don't match any active conversation.
+ * Delete stale session files across all installed CLI runtimes.
+ * Delegates to each adapter's cleanStaleSessions() method.
  */
 function cleanStaleSessions() {
-  if (!fs.existsSync(SESSIONS_DIR)) return { deleted: 0, scanned: 0 };
-
   const activeIds = new Set(
     getAll('SELECT session_id FROM conversations').map(c => c.session_id)
   );
 
-  let deleted = 0;
-  let scanned = 0;
+  let totalDeleted = 0;
+  let totalScanned = 0;
 
-  for (const projectDir of fs.readdirSync(SESSIONS_DIR)) {
-    const fullDir = path.join(SESSIONS_DIR, projectDir);
-    if (!fs.statSync(fullDir).isDirectory()) continue;
-
-    for (const file of fs.readdirSync(fullDir)) {
-      if (!file.endsWith('.jsonl')) continue;
-      scanned++;
-
-      const sessionId = file.replace('.jsonl', '');
-      if (!activeIds.has(sessionId)) {
-        try {
-          fs.unlinkSync(path.join(fullDir, file));
-          const companionDir = path.join(fullDir, sessionId);
-          if (fs.existsSync(companionDir) && fs.statSync(companionDir).isDirectory()) {
-            fs.rmSync(companionDir, { recursive: true });
-          }
-          deleted++;
-        } catch {}
-      }
-    }
-
+  for (const adapter of registry.getAvailable()) {
     try {
-      if (fs.readdirSync(fullDir).length === 0) fs.rmdirSync(fullDir);
-    } catch {}
+      const { deleted, scanned } = adapter.cleanStaleSessions(activeIds);
+      totalDeleted += deleted;
+      totalScanned += scanned;
+    } catch (err) {
+      console.warn(`[cleanup] Session cleanup failed for ${adapter.displayName}: ${err.message}`);
+    }
   }
 
-  if (deleted > 0) console.log(`[cleanup] Deleted ${deleted} stale CC session(s) (scanned ${scanned})`);
-  return { deleted, scanned };
+  return { deleted: totalDeleted, scanned: totalScanned };
 }
 
 /**

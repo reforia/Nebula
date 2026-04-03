@@ -111,43 +111,31 @@ executor.on('agent_typing', ({ agentId, orgId, conversationId, active, projectId
   }
 });
 
-// Startup: restore CC config if missing, reset stale sessions
+// Startup: run adapter recovery and reset stale sessions
 import fs from 'fs';
 import crypto from 'crypto';
 import { getAll, run as dbRun } from './db.js';
 (() => {
-  const home = process.env.HOME || '/home/node';
-  const configPath = path.join(home, '.claude.json');
-  const backupDir = path.join(home, '.claude', 'backups');
-  // Restore .claude.json from latest backup if missing
-  if (!fs.existsSync(configPath) && fs.existsSync(backupDir)) {
-    const backups = fs.readdirSync(backupDir).filter(f => f.startsWith('.claude.json.backup.')).sort();
-    if (backups.length > 0) {
-      const latest = backups[backups.length - 1];
-      fs.copyFileSync(path.join(backupDir, latest), configPath);
-      console.log(`[startup] Restored ${configPath} from ${latest}`);
-    }
+  // Let each adapter perform startup recovery (e.g. restore config from backups)
+  for (const adapter of registry.getAll()) {
+    try { adapter.startupRecover(); } catch {}
   }
-  // Reset sessions whose CC state no longer exists
-  const initialized = getAll('SELECT id, session_id, agent_id FROM conversations WHERE session_initialized = 1');
-  const projectsDir = path.join(home, '.claude', 'projects');
+
+  // Reset sessions whose runtime state no longer exists on disk
+  const initialized = getAll(
+    'SELECT c.id, c.session_id, c.agent_id, a.backend FROM conversations c JOIN agents a ON a.id = c.agent_id WHERE c.session_initialized = 1'
+  );
   let resetCount = 0;
   for (const conv of initialized) {
-    // Check if session exists in CC's projects directory
-    let found = false;
-    if (fs.existsSync(projectsDir)) {
-      for (const dir of fs.readdirSync(projectsDir)) {
-        const sessionFile = path.join(projectsDir, dir, `${conv.session_id}.jsonl`);
-        if (fs.existsSync(sessionFile)) { found = true; break; }
-      }
-    }
-    if (!found) {
+    const backend = conv.backend ? registry.getAll().find(a => a.cliId === conv.backend) : null;
+    // If we can identify the adapter, ask it; otherwise skip (don't reset unknown backends)
+    if (backend && !backend.sessionExists(conv.session_id)) {
       const newId = crypto.randomUUID();
       dbRun('UPDATE conversations SET session_id = ?, session_initialized = 0 WHERE id = ?', [newId, conv.id]);
       resetCount++;
     }
   }
-  if (resetCount > 0) console.log(`[startup] Reset ${resetCount} stale CC session(s)`);
+  if (resetCount > 0) console.log(`[startup] Reset ${resetCount} stale session(s)`);
 })();
 
 // Migrate file-based memories to DB (one-time), then build search index

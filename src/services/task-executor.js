@@ -12,7 +12,7 @@ import { insertMessage, resolveConversation } from './message-service.js';
  * save result/error, update task status, broadcast, notify.
  *
  * Tasks run in the agent's main conversation (or project conversation),
- * resuming the existing CC CLI session so the agent has full context.
+ * resuming the existing CLI session so the agent has full context.
  *
  * @param {Object} task - Task row from DB
  * @param {Object} agent - Agent row from DB

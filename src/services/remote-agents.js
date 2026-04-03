@@ -174,7 +174,7 @@ export function executeRemote(agentId, prompt, systemPrompt, agent, conversation
       return reject(new Error('Remote agent is not connected'));
     }
 
-    const runtime = options.runtime || 'claude-cli';
+    const runtime = options.runtime || agent.backend || '';
     if (client.availableRuntimes.length > 0 && !client.availableRuntimes.includes(runtime)) {
       return reject(new Error(`Remote agent does not have "${runtime}" installed. Available: ${client.availableRuntimes.join(', ')}. Update the remote client or change the agent's runtime.`));
     }
@@ -204,7 +204,7 @@ export function executeRemote(agentId, prompt, systemPrompt, agent, conversation
       session_initialized: conversation.session_initialized,
       allowed_tools: agent.allowed_tools,
       model: agent.model,
-      runtime: options.runtime || 'claude-cli',
+      runtime: options.runtime || agent.backend || '',
       max_turns: options.maxTurns || 50,
       timeout_ms: timeoutMs,
       images: remoteImages,
