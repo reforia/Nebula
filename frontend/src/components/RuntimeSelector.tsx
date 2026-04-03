@@ -12,20 +12,23 @@ export function invalidateRuntimeCache() {
 export function useRuntimes() {
   const [data, setData] = useState(cachedRuntimes);
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(!cachedRuntimes);
 
   useEffect(() => {
     const refresh = () => {
+      setLoading(true);
       getRuntimes()
         .then(d => { cachedRuntimes = d; setData(d); setError(false); })
-        .catch(() => { setError(true); });
+        .catch(() => { setError(true); })
+        .finally(() => setLoading(false));
     };
     if (!cachedRuntimes) refresh();
-    else setData(cachedRuntimes);
+    else { setData(cachedRuntimes); setLoading(false); }
     listeners.push(refresh);
     return () => { listeners = listeners.filter(fn => fn !== refresh); };
   }, []);
 
-  return { data, error };
+  return { data, error, loading };
 }
 
 export function useRuntimeInfo(runtimeId: string): RuntimeInfo | null {
@@ -39,7 +42,7 @@ interface Props {
 }
 
 export default function RuntimeSelector({ value, onChange }: Props) {
-  const { data, error } = useRuntimes();
+  const { data, error, loading } = useRuntimes();
   const runtimes = data?.runtimes ?? [];
   const available = runtimes.filter(r => r.available);
 
@@ -49,12 +52,21 @@ export default function RuntimeSelector({ value, onChange }: Props) {
     }
   }, [value, available.length]);
 
-  if (runtimes.length === 0) {
-    if (error) return <p className="text-xs text-red-400">Failed to load runtimes. Check server connection.</p>;
-    return <p className="text-xs text-nebula-muted">Loading runtimes...</p>;
+  if (loading && runtimes.length === 0) {
+    return (
+      <div className="flex gap-1.5">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="flex-1 h-8 rounded-lg bg-nebula-bg border border-nebula-border animate-pulse" />
+        ))}
+      </div>
+    );
   }
 
-  if (available.length === 0) {
+  if (error && runtimes.length === 0) {
+    return <p className="text-xs text-red-400">Failed to load runtimes. Check server connection.</p>;
+  }
+
+  if (!loading && available.length === 0) {
     return <p className="text-xs text-red-400">No CLI runtimes detected. Place a supported CLI binary in the runtimes volume and re-detect.</p>;
   }
 

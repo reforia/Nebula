@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useModels } from '../hooks/useModels';
-import { useRuntimeInfo } from './RuntimeSelector';
+import { useRuntimeInfo, useRuntimes } from './RuntimeSelector';
 
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
@@ -19,6 +19,7 @@ interface Props {
 
 export default function ModelPicker({ model, onChange, runtimeId, className }: Props) {
   const allModels = useModels();
+  const { loading: runtimesLoading } = useRuntimes();
   const rtInfo = useRuntimeInfo(runtimeId || '');
   const [customMode, setCustomMode] = useState(false);
   const prevRuntimeRef = useRef(runtimeId);
@@ -60,6 +61,10 @@ export default function ModelPicker({ model, onChange, runtimeId, className }: P
 
   const hasModels = models.length > 0;
   const inputClass = className || "w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded text-sm text-nebula-text focus:outline-none focus:border-nebula-accent";
+
+  if (runtimesLoading && !rtInfo) {
+    return <div className={`${inputClass} animate-pulse h-[38px]`} />;
+  }
 
   // Custom text input mode (user chose "Enter model ID..." or no models available)
   if (customMode || (!hasModels && acceptsAnyModel)) {

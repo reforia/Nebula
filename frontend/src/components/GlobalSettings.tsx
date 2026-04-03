@@ -68,9 +68,13 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
   const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
   const [runtimeDefault, setRuntimeDefault] = useState('');
   const [runtimeDetecting, setRuntimeDetecting] = useState(false);
+  const [runtimesLoading, setRuntimesLoading] = useState(true);
 
   useEffect(() => {
-    getRuntimes().then(r => { setRuntimes(r.runtimes); setRuntimeDefault(r.default); }).catch(() => {});
+    getRuntimes()
+      .then(r => { setRuntimes(r.runtimes); setRuntimeDefault(r.default); })
+      .catch(() => {})
+      .finally(() => setRuntimesLoading(false));
   }, []);
 
   const handleSave = async () => {
@@ -533,6 +537,20 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                   {runtimeDetecting ? 'Scanning...' : 'Re-detect'}
                 </button>
               </div>
+
+              {runtimesLoading && runtimes.length === 0 && (
+                <div className="space-y-3">
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={i} className="rounded-lg border border-nebula-border/50 p-3 animate-pulse">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-nebula-border" />
+                        <div className="h-4 w-24 bg-nebula-border/50 rounded" />
+                      </div>
+                      <div className="h-3 w-48 bg-nebula-border/30 rounded mt-2" />
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {runtimes.map(rt => (
                 <div key={rt.id} className={`rounded-lg border ${rt.available ? 'border-nebula-border' : 'border-nebula-border/50'}`}>
