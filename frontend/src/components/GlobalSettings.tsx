@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getSettings, updateSettings, getStatus, OrgStatus, checkCCAuth, getGlobalKnowledge, updateGlobalKnowledge, getSecrets, createSecret, deleteSecret, OrgSecret, updateOrg, getErrors, dismissError, dismissAllErrors, ExecutionError, exportTemplate, importTemplate, OrgTemplate, getSecretRefs, SecretRef, listTemplates, getTemplate, TemplateSummary, getCleanupStatus, runCleanup, CleanupStatus, getRuntimes, detectRuntimes, setDefaultRuntime, setRuntimePath, RuntimeInfo } from '../api/client';
+import { getSettings, updateSettings, getStatus, OrgStatus, getGlobalKnowledge, updateGlobalKnowledge, getSecrets, createSecret, deleteSecret, OrgSecret, updateOrg, getErrors, dismissError, dismissAllErrors, ExecutionError, exportTemplate, importTemplate, OrgTemplate, getSecretRefs, SecretRef, listTemplates, getTemplate, TemplateSummary, getCleanupStatus, runCleanup, CleanupStatus, getRuntimes, detectRuntimes, setDefaultRuntime, RuntimeInfo } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 // Models are now static from runtime adapters — no cache invalidation needed
 import SkillEditor from './SkillEditor';
@@ -24,7 +24,6 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [globalMd, setGlobalMd] = useState('');
   const [status, setStatus] = useState<OrgStatus | null>(null);
-  const [ccAuth, setCcAuth] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [orgName, setOrgName] = useState(currentOrg?.name || '');
@@ -69,9 +68,6 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
   const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
   const [runtimeDefault, setRuntimeDefault] = useState('');
   const [runtimeDetecting, setRuntimeDetecting] = useState(false);
-  const [runtimeCustomPaths, setRuntimeCustomPaths] = useState<Record<string, string>>({});
-  const [runtimePathSaving, setRuntimePathSaving] = useState<Record<string, boolean>>({});
-  const [runtimePathError, setRuntimePathError] = useState<Record<string, string>>({});
 
   useEffect(() => {
     getRuntimes().then(r => { setRuntimes(r.runtimes); setRuntimeDefault(r.default); }).catch(() => {});
@@ -95,12 +91,6 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleCheckAuth = async () => {
-    setCcAuth(null);
-    const result = await checkCCAuth();
-    setCcAuth(result);
   };
 
   const updateSetting = (key: string, value: string) => {
@@ -594,60 +584,22 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                       </>
                     ) : (
                       <>
-                        {/* Not detected — show install instructions */}
+                        {/* Not detected — show mount point instructions */}
                         <div className="bg-nebula-bg rounded-lg p-2.5 space-y-1.5">
-                          <p className="text-[11px] text-nebula-muted">Not detected. Install:</p>
+                          <p className="text-[11px] text-nebula-muted">
+                            Not detected. Place or symlink the binary into the runtimes volume:
+                          </p>
                           <code className="block text-[11px] text-nebula-text bg-nebula-surface px-2 py-1 rounded font-mono select-all">
-                            {rt.install.command}
+                            runtimes/bin/{rt.binaryName}
                           </code>
+                          <p className="text-[11px] text-nebula-muted">Then click Re-detect above.</p>
                           {rt.authGuide.description && (
-                            <p className="text-[11px] text-nebula-muted">Then authenticate: {rt.authGuide.description}</p>
-                          )}
-                          {rt.authGuide.command && (
-                            <code className="block text-[11px] text-nebula-text bg-nebula-surface px-2 py-1 rounded font-mono select-all">
-                              {rt.authGuide.command}
-                            </code>
+                            <p className="text-[11px] text-nebula-muted">Auth: {rt.authGuide.description}</p>
                           )}
                           {rt.install.url && (
                             <a href={rt.install.url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-nebula-accent hover:underline">
                               Documentation
                             </a>
-                          )}
-                        </div>
-
-                        {/* Manual path override */}
-                        <div className="space-y-1">
-                          <p className="text-[11px] text-nebula-muted">Or specify the binary path manually:</p>
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              value={runtimeCustomPaths[rt.id] ?? ''}
-                              onChange={e => setRuntimeCustomPaths(prev => ({ ...prev, [rt.id]: e.target.value }))}
-                              placeholder={`/path/to/${rt.id === 'claude-cli' ? 'claude' : 'opencode'}`}
-                              className="flex-1 px-2 py-1.5 bg-nebula-bg border border-nebula-border rounded text-[11px] text-nebula-text font-mono focus:outline-none focus:border-nebula-accent/50"
-                            />
-                            <button
-                              onClick={async () => {
-                                const p = runtimeCustomPaths[rt.id]?.trim();
-                                if (!p) return;
-                                setRuntimePathSaving(prev => ({ ...prev, [rt.id]: true }));
-                                setRuntimePathError(prev => ({ ...prev, [rt.id]: '' }));
-                                try {
-                                  await setRuntimePath(rt.id, p);
-                                  await getRuntimes().then(r => { setRuntimes(r.runtimes); setRuntimeDefault(r.default); });
-                                } catch (err: any) {
-                                  setRuntimePathError(prev => ({ ...prev, [rt.id]: err.message }));
-                                }
-                                setRuntimePathSaving(prev => ({ ...prev, [rt.id]: false }));
-                              }}
-                              disabled={!runtimeCustomPaths[rt.id]?.trim() || runtimePathSaving[rt.id]}
-                              className="px-2 py-1.5 text-[11px] bg-nebula-surface-2 border border-nebula-border rounded hover:bg-nebula-hover disabled:opacity-30 text-nebula-muted"
-                            >
-                              {runtimePathSaving[rt.id] ? '...' : 'Set'}
-                            </button>
-                          </div>
-                          {runtimePathError[rt.id] && (
-                            <p className="text-[10px] text-red-400">{runtimePathError[rt.id]}</p>
                           )}
                         </div>
                       </>
@@ -806,17 +758,6 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                 </div>
               )}
 
-              <div>
-                <button onClick={handleCheckAuth} className="px-3 py-2 text-sm bg-nebula-bg border border-nebula-border rounded hover:bg-nebula-hover">
-                  Check CC Auth
-                </button>
-                {ccAuth && (
-                  <p className={`text-sm mt-2 ${ccAuth.ok ? 'text-green-400' : 'text-red-400'}`}>
-                    {ccAuth.ok ? `OK — ${ccAuth.version}` : `Error: ${ccAuth.error}`}
-                  </p>
-                )}
-              </div>
-
               {/* Cleanup service */}
               <div className="pt-4 border-t border-nebula-border space-y-3">
                 <div className="flex items-center justify-between">
@@ -831,7 +772,7 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                     Enabled
                   </label>
                 </div>
-                <p className="text-[11px] text-nebula-muted">Automatically cleans orphaned CC CLI sessions and stale project worktrees on a schedule.</p>
+                <p className="text-[11px] text-nebula-muted">Automatically cleans orphaned CLI sessions and stale project worktrees on a schedule.</p>
 
                 <div>
                   <label className="text-xs text-nebula-muted block mb-1">Schedule (cron expression)</label>
@@ -852,7 +793,7 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                       onChange={e => updateSetting('cleanup_sessions', e.target.checked ? '1' : '0')}
                       className="accent-nebula-accent"
                     />
-                    Stale CC sessions
+                    Stale sessions
                   </label>
                   <label className="flex items-center gap-2 text-[12px] text-nebula-text">
                     <input

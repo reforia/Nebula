@@ -413,7 +413,6 @@ export interface OrgStatus {
   };
 }
 export const getStatus = () => request<OrgStatus>('/api/status');
-export const checkCCAuth = () => request<{ ok: boolean; version?: string; error?: string }>('/api/auth/check', { method: 'POST' });
 
 // Cleanup
 export interface CleanupStatus {
@@ -437,6 +436,7 @@ export const runCleanup = () => request<{ timestamp: string; sessions?: any; wor
 export interface RuntimeInfo {
   id: string;
   name: string;
+  binaryName: string;
   available: boolean;
   binaryPath: string | null;
   version: string | null;
@@ -456,7 +456,6 @@ export interface RuntimesResponse {
 export const getRuntimes = () => request<RuntimesResponse>('/api/runtimes');
 export const detectRuntimes = () => request<{ runtimes: Pick<RuntimeInfo, 'id' | 'name' | 'available' | 'binaryPath'>[] }>('/api/runtimes/detect', { method: 'POST' });
 export const setDefaultRuntime = (runtime: string) => request<{ ok: boolean; default: string }>('/api/runtimes/default', { method: 'PUT', body: JSON.stringify({ runtime }) });
-export const setRuntimePath = (runtimeId: string, path: string) => request<{ ok: boolean; available: boolean; binaryPath: string; version?: string }>(`/api/runtimes/${runtimeId}/path`, { method: 'PUT', body: JSON.stringify({ path }) });
 export interface ExecutionError {
   id: string;
   agent_id: string;

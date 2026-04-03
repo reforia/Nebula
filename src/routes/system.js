@@ -94,15 +94,10 @@ router.get('/runtimes', (req, res) => {
   const orgDefault = getOrgSetting(req.orgId, 'default_runtime') || '';
 
   const runtimes = registry.getAll().map(adapter => {
-    // Check for manual path override
-    const customPath = getOrgSetting(req.orgId, `runtime_path_${adapter.cliId}`);
-    if (customPath && !adapter.isAvailable) {
-      adapter.setCustomBinaryPath(customPath);
-    }
-
     return {
       id: adapter.cliId,
       name: adapter.displayName,
+      binaryName: adapter.binaryNames[0] || adapter.cliId,
       available: adapter.isAvailable,
       binaryPath: adapter.binaryPath,
       version: adapter.isAvailable ? adapter.getVersion() : null,
@@ -131,18 +126,9 @@ router.get('/runtimes', (req, res) => {
   res.json({ runtimes, default: resolvedDefault });
 });
 
-// POST /api/runtimes/detect — re-scan for CLI binaries (respects custom paths)
+// POST /api/runtimes/detect — re-scan for CLI binaries
 router.post('/runtimes/detect', (req, res) => {
-  // registry imported at top
   registry.detect();
-
-  // Re-apply custom paths for any that auto-detect missed
-  for (const adapter of registry.getAll()) {
-    if (!adapter.isAvailable) {
-      const customPath = getOrgSetting(req.orgId, `runtime_path_${adapter.cliId}`);
-      if (customPath) adapter.setCustomBinaryPath(customPath);
-    }
-  }
 
   const runtimes = registry.getAll().map(adapter => ({
     id: adapter.cliId,
@@ -170,32 +156,6 @@ router.put('/runtimes/default', (req, res) => {
   res.json({ ok: true, default: runtime });
 });
 
-// PUT /api/runtimes/:id/path — set custom binary path for a runtime
-router.put('/runtimes/:id/path', (req, res) => {
-  const { path: customPath } = req.body;
-  const runtimeId = req.params.id;
-
-  try {
-    const adapter = registry.get(runtimeId);
-
-    if (!customPath || !customPath.trim()) {
-      // Clear custom path — revert to auto-detect
-      setOrgSetting(req.orgId, `runtime_path_${runtimeId}`, '');
-      adapter.detectBinary();
-      return res.json({ ok: true, available: adapter.isAvailable, binaryPath: adapter.binaryPath });
-    }
-
-    const resolved = customPath.trim();
-    if (adapter.setCustomBinaryPath(resolved)) {
-      setOrgSetting(req.orgId, `runtime_path_${runtimeId}`, resolved);
-      res.json({ ok: true, available: true, binaryPath: resolved, version: adapter.getVersion() });
-    } else {
-      res.status(400).json({ error: `Binary not found at: ${resolved}` });
-    }
-  } catch {
-    res.status(400).json({ error: `Unknown runtime: ${runtimeId}` });
-  }
-});
 
 // GET /api/tasks/all — all tasks across agents in the org (for calendar view)
 router.get('/tasks/all', (req, res) => {
@@ -323,20 +283,6 @@ router.delete('/errors/:id', (req, res) => {
 router.delete('/errors', (req, res) => {
   run('DELETE FROM usage_events WHERE org_id = ? AND status = ?', [req.orgId, 'error']);
   res.json({ ok: true });
-});
-
-// POST /api/auth/check — test CC auth
-router.post('/auth/check', async (req, res) => {
-  try {
-    const { execSync } = await import('child_process');
-    const result = execSync('claude --version', {
-      timeout: 10000,
-      env: { ...process.env, HOME: process.env.HOME || '/home/node' },
-    });
-    res.json({ ok: true, version: result.toString().trim() });
-  } catch (err) {
-    res.json({ ok: false, error: err.message });
-  }
 });
 
 // GET /api/global-knowledge — org-scoped

@@ -55,7 +55,7 @@ export default function RuntimeSelector({ value, onChange }: Props) {
   }
 
   if (available.length === 0) {
-    return <p className="text-xs text-red-400">No CLI runtimes detected. Install Claude Code or OpenCode.</p>;
+    return <p className="text-xs text-red-400">No CLI runtimes detected. Place a supported CLI binary in the runtimes volume and re-detect.</p>;
   }
 
   const selected = runtimes.find(r => r.id === value);
