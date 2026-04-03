@@ -10,6 +10,7 @@ import { initRemoteWebSocket, handleRemoteUpgrade } from './services/remote-agen
 import { initScheduler } from './services/scheduler.js';
 import { initBackupScheduler } from './services/backup.js';
 import executor from './services/executor.js';
+import { registry } from './backends/index.js';
 import { broadcastToOrg } from './services/websocket.js';
 
 import authRouter, { jwtMiddleware, requireAuth } from './routes/auth.js';

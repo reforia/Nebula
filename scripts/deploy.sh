@@ -29,8 +29,8 @@ scp -O -P $NAS_PORT /tmp/nebula-deploy.tar.gz $NAS:$NAS_DIR/nebula-deploy.tar.gz
 
 echo "[4/4] Building & restarting on server..."
 ssh -p $NAS_PORT $NAS "
-  cd $NAS_DIR/Nebula
-  tar xzf ../nebula-deploy.tar.gz 2>/dev/null
+  cd $NAS_DIR
+  tar xzf nebula-deploy.tar.gz 2>/dev/null
   # Kill any previous builds (but not our own shell)
   for pid in \$(pgrep -f 'docker compose build' 2>/dev/null); do kill \$pid 2>/dev/null; done
   sleep 1
