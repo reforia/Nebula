@@ -24,6 +24,7 @@ import { generateId } from '../utils/uuid.js';
 const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME || '/home/node', '.claude');
 const SESSIONS_DIR = path.join(CLAUDE_HOME, 'projects');
 const DEFAULT_CRON = '0 3 * * *';
+const SYS_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 let cleanupTask = null;
 let lastResult = null;
@@ -257,11 +258,11 @@ function schedule(orgId) {
   }
 
   try {
-    cleanupTask = new Cron(settings.cron, () => performCleanup(orgId));
-    console.log(`[cleanup] Scheduled — ${settings.cron}`);
+    cleanupTask = new Cron(settings.cron, { timezone: SYS_TZ }, () => performCleanup(orgId));
+    console.log(`[cleanup] Scheduled — ${settings.cron} (${SYS_TZ})`);
   } catch (err) {
     console.error(`[cleanup] Invalid cron "${settings.cron}", falling back to default`);
-    cleanupTask = new Cron(DEFAULT_CRON, () => performCleanup(orgId));
+    cleanupTask = new Cron(DEFAULT_CRON, { timezone: SYS_TZ }, () => performCleanup(orgId));
   }
 }
 

@@ -1,7 +1,8 @@
 import { Cron } from 'croner';
 import { getAll, getOne } from '../db.js';
-import { getOrgSetting } from '../db.js';
 import { executeTask } from './task-executor.js';
+
+const SYS_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const activeCrons = new Map(); // taskId -> Cron instance
 
@@ -37,7 +38,7 @@ export function registerCron(task) {
     return;
   }
 
-  const job = new Cron(task.cron_expression, () => {
+  const job = new Cron(task.cron_expression, { timezone: SYS_TZ }, () => {
     enqueueFire(task.id);
   });
 
