@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useModels } from '../hooks/useModels';
 import { useRuntimeInfo, useRuntimes } from './RuntimeSelector';
 
@@ -37,17 +37,11 @@ export default function ModelPicker({ model, onChange, runtimeId, className }: P
     return allModels;
   }, [allModels, runtimeModels, prefixes]);
 
-  // When runtime changes, reset custom mode and auto-select a valid model
-  useEffect(() => {
-    if (prevRuntimeRef.current !== runtimeId) {
-      prevRuntimeRef.current = runtimeId;
-      setCustomMode(false);
-      // If current model isn't in the new runtime's list, pick the first available
-      if (models.length > 0 && !models.some(m => m.id === model)) {
-        onChange(models[0].id);
-      }
-    }
-  }, [runtimeId, models, model]);
+  // When runtime changes, reset custom mode (model auto-select is handled by parent)
+  if (prevRuntimeRef.current !== runtimeId) {
+    prevRuntimeRef.current = runtimeId;
+    if (customMode) setCustomMode(false);
+  }
 
   const grouped = useMemo(() => {
     const groups: Record<string, typeof models> = {};

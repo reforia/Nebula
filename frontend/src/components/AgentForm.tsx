@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { createAgent, Agent } from '../api/client';
 import ToolsPicker from './ToolsPicker';
 import ModelPicker from './ModelPicker';
-import RuntimeSelector, { useRuntimes } from './RuntimeSelector';
+import RuntimeSelector, { useRuntimes, pickModelForRuntime } from './RuntimeSelector';
 import Modal from './Modal';
 
 interface Props {
@@ -84,7 +84,11 @@ export default function AgentForm({ onClose, onCreated }: Props) {
           </div>
           <div>
             <label className="text-xs text-nebula-muted block mb-1">Runtime</label>
-            <RuntimeSelector value={runtime} onChange={setRuntime} />
+            <RuntimeSelector value={runtime} onChange={rt => {
+              setRuntime(rt);
+              const pick = pickModelForRuntime(runtimeData?.runtimes ?? [], rt, model);
+              if (pick) setModel(pick);
+            }} />
           </div>
           <div>
             <label className="text-xs text-nebula-muted block mb-1">Model</label>

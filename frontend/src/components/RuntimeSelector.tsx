@@ -36,6 +36,19 @@ export function useRuntimeInfo(runtimeId: string): RuntimeInfo | null {
   return data?.runtimes.find(r => r.id === runtimeId) ?? null;
 }
 
+/**
+ * Return the first valid model for a runtime if currentModel is incompatible, or null if it's fine.
+ */
+export function pickModelForRuntime(runtimes: RuntimeInfo[], runtimeId: string, currentModel: string): string | null {
+  const rt = runtimes.find(r => r.id === runtimeId);
+  if (!rt) return null;
+  const models = rt.models ?? [];
+  if (models.length > 0) {
+    return models.some(m => m.id === currentModel) ? null : models[0].id;
+  }
+  return null;
+}
+
 interface Props {
   value: string;
   onChange: (runtime: string) => void;

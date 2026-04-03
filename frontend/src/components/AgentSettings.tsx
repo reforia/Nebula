@@ -8,7 +8,7 @@ import McpServerEditor from './McpServerEditor';
 import MemoryEditor from './MemoryEditor';
 import ToolsPicker from './ToolsPicker';
 import ModelPicker from './ModelPicker';
-import RuntimeSelector, { useRuntimes } from './RuntimeSelector';
+import RuntimeSelector, { useRuntimes, pickModelForRuntime } from './RuntimeSelector';
 
 interface Props {
   agent: Agent;
@@ -152,7 +152,11 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
               </div>
               <div>
                 <label className="text-xs text-nebula-muted block mb-1">Runtime</label>
-                <RuntimeSelector value={runtime} onChange={setRuntime} />
+                <RuntimeSelector value={runtime} onChange={rt => {
+                  setRuntime(rt);
+                  const pick = pickModelForRuntime(data?.runtimes ?? [], rt, model);
+                  if (pick) setModel(pick);
+                }} />
               </div>
               {(() => {
                 const rtInfo = (data?.runtimes ?? []).find(r => r.id === runtime);
