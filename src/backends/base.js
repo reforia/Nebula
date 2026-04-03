@@ -64,7 +64,13 @@ export class ExecutionBackend {
         }
       } catch {}
     }
-    for (const p of this.fallbackPaths) {
+    // Check user-provided runtimes volume, then adapter-specific fallbacks
+    const dataDir = process.env.DATA_DIR || '/data';
+    const allFallbacks = [
+      ...this.binaryNames.map(bin => path.join(dataDir, 'runtimes', 'bin', bin)),
+      ...this.fallbackPaths,
+    ];
+    for (const p of allFallbacks) {
       if (fs.existsSync(p)) {
         this.binaryPath = p;
         this.isAvailable = true;
@@ -87,20 +93,6 @@ export class ExecutionBackend {
     } catch {
       return null;
     }
-  }
-
-  /**
-   * Set binary path manually (user override). Rechecks availability.
-   * @param {string} customPath
-   * @returns {boolean} true if the path exists and is now active
-   */
-  setCustomBinaryPath(customPath) {
-    if (customPath && fs.existsSync(customPath)) {
-      this.binaryPath = customPath;
-      this.isAvailable = true;
-      return true;
-    }
-    return false;
   }
 
   /**
@@ -158,6 +150,35 @@ export class ExecutionBackend {
    */
   parseOutput(rawOutput, startTime) {
     throw new Error(`${this.cliId}: parseOutput() not implemented`);
+  }
+
+  /**
+   * Check whether a session file/state exists for the given session ID.
+   * Override in subclass if the runtime persists sessions to disk.
+   * @param {string} sessionId
+   * @returns {boolean}
+   */
+  sessionExists(sessionId) {
+    // Default: assume session exists (stateless runtimes don't track sessions)
+    return true;
+  }
+
+  /**
+   * Delete session files not in the active set.
+   * Override in subclass if the runtime persists sessions to disk.
+   * @param {Set<string>} activeSessionIds - Session IDs still in use
+   * @returns {{ deleted: number, scanned: number }}
+   */
+  cleanStaleSessions(activeSessionIds) {
+    return { deleted: 0, scanned: 0 };
+  }
+
+  /**
+   * Perform any startup recovery (e.g. restoring config from backups).
+   * Override in subclass if needed. Called once at server boot.
+   */
+  startupRecover() {
+    // No-op by default
   }
 
   /**

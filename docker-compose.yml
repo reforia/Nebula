@@ -10,7 +10,9 @@ services:
       - ${NEBULA_DATA_DIR:-./data}:/data
       - ${CLAUDE_AUTH_DIR:-./claude-auth}:/home/node/.claude
       - ${SSH_KEYS_DIR:-./ssh-keys}:/home/node/.ssh:ro
-      # Add extra volumes in docker-compose.override.yml (e.g. NAS mounts)
+      - ${RUNTIMES_DIR:-./runtimes}:/data/runtimes:ro
+      # Place CLI binaries (claude, codex, gemini, etc.) in runtimes/bin/
+      # They will be auto-detected on startup and via the re-detect button in Settings > Runtimes
     environment:
       - TZ=${TZ:-UTC}
       - HTTP_PROXY=${HTTP_PROXY:-}

@@ -14,9 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl git jq openssh-client ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI and OpenCode CLI globally
-RUN npm install -g @anthropic-ai/claude-code opencode-ai
-
 # Create HOME directories writable by any user (UID set at runtime via docker-compose)
 RUN mkdir -p /home/node/.claude /home/node/.ssh && chmod -R 777 /home/node
 
