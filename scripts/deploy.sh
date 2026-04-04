@@ -21,7 +21,7 @@ cd "$(dirname "$0")/.."
 
 echo "[2/4] Packaging..."
 tar czf /tmp/nebula-deploy.tar.gz \
-  --exclude=node_modules --exclude=data --exclude=.git \
+  --exclude=node_modules --exclude=data --exclude=.git --exclude=.gitea \
   --exclude=frontend/node_modules --exclude=.claude --exclude='*.tsbuildinfo' --exclude=.env .
 
 echo "[3/4] Uploading to server..."
