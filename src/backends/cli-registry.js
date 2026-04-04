@@ -26,6 +26,7 @@ class CLIRegistry {
     for (const adapter of this._adapters.values()) {
       const result = adapter.detectBinary();
       if (result) {
+        adapter._refreshCache();
         console.log(`[cli-registry] ${adapter.displayName} detected at: ${result}`);
       }
     }

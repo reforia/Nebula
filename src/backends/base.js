@@ -46,6 +46,8 @@ export class ExecutionBackend {
     // --- Cached state (set by detectBinary) ---
     this.isAvailable = false;
     this.binaryPath = null;
+    this._cachedVersion = null;
+    this._cachedAuth = null;
   }
 
   /**
@@ -79,20 +81,32 @@ export class ExecutionBackend {
     }
     this.binaryPath = null;
     this.isAvailable = false;
+    this._cachedVersion = null;
+    this._cachedAuth = null;
     return null;
   }
 
-  /**
-   * Get the installed version of this CLI.
-   * @returns {string|null} Version string, or null if not available
-   */
-  getVersion() {
+  /** Refresh cached version and auth status. Called after detectBinary finds a binary. */
+  _refreshCache() {
+    this._cachedVersion = this._fetchVersion();
+    this._cachedAuth = this.checkAuth();
+  }
+
+  _fetchVersion() {
     if (!this.binaryPath) return null;
     try {
       return execSync(`"${this.binaryPath}" --version`, { encoding: 'utf-8', timeout: 10000 }).trim();
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Get the installed version of this CLI (cached).
+   * @returns {string|null} Version string, or null if not available
+   */
+  getVersion() {
+    return this._cachedVersion;
   }
 
   /**
@@ -183,10 +197,19 @@ export class ExecutionBackend {
 
   /**
    * Check if the CLI is authenticated / ready to execute.
+   * Override in subclass for runtime-specific checks.
    * @returns {{ ok: boolean, error?: string }}
    */
   checkAuth() {
     return { ok: true };
+  }
+
+  /**
+   * Get cached auth status (from last detect/refresh).
+   * @returns {{ ok: boolean, error?: string }}
+   */
+  getAuth() {
+    return this._cachedAuth || this.checkAuth();
   }
 
   /**
