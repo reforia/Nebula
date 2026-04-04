@@ -65,12 +65,13 @@ export default function ModelPicker({ model, onChange, runtimeId, className }: P
   const hasModels = models.length > 0;
   const inputClass = className || "w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded text-sm text-nebula-text focus:outline-none focus:border-nebula-accent";
 
-  if (runtimesLoading && !rtInfo) {
+  // Show skeleton while runtime info is loading
+  if (!rtInfo && (runtimesLoading || runtimeId)) {
     return <div className={`${inputClass} animate-pulse h-[38px]`} />;
   }
 
-  // Custom text input mode (user chose "Enter model ID..." or no models available)
-  if (customMode || (!hasModels && acceptsAnyModel)) {
+  // Custom text input mode (user explicitly chose "Enter model ID..." or runtime accepts any model with no known list)
+  if (customMode || (!hasModels && acceptsAnyModel && rtInfo)) {
     return (
       <div>
         <input
