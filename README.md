@@ -118,8 +118,10 @@ All configuration is via environment variables. See [`.env.example`](.env.exampl
 |----------|---------|-------------|
 | `AUTH_PROVIDER` | `local` | Auth mode: `local` (email/password) or `enigma` (OAuth) |
 | `NEBULA_PORT` | `8080` | HTTP port |
+| `NEBULA_URL` | — | External URL of this instance (e.g. `http://your-server:8080`). Required for remote agents — built-in skills use this to call the API. |
 | `NEBULA_DATA_DIR` | `./data` | Persistent data directory |
 | `NEBULA_ENCRYPTION_KEY` | — | AES-256 key for secrets vault (required) |
+| `RUNTIMES_DIR` | `./runtimes` | Directory for CLI runtime binaries. Place or symlink binaries into `runtimes/bin/` — they are auto-detected at startup. |
 | `TZ` | `UTC` | Timezone for cron schedules |
 
 ## CLI Runtime Registry
