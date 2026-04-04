@@ -34,8 +34,11 @@ export default function ModelPicker({ model, onChange, runtimeId, className }: P
     if (prefixes.length > 0) {
       return allModels.filter(m => prefixes.some(p => m.id.startsWith(p)));
     }
+    // Only show all models when no runtime is selected or runtime accepts any model
+    // Don't fall back to allModels when rtInfo is just not loaded yet
+    if (runtimeId && !rtInfo) return [];
     return allModels;
-  }, [allModels, runtimeModels, prefixes]);
+  }, [allModels, runtimeModels, prefixes, runtimeId, rtInfo]);
 
   // When runtime changes or models become available, auto-select a valid model
   useEffect(() => {
