@@ -12,6 +12,7 @@ import { CODING_CONVENTIONS_SKILL, intelligenceScanSkill } from './builtin-skill
 import { evaluateReadiness } from './readiness.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const API_BASE = (process.env.NEBULA_URL || 'http://localhost:8080').replace(/\/+$/, '');
 
 class AgentExecutor extends EventEmitter {
   constructor() {
@@ -315,27 +316,27 @@ class AgentExecutor extends EventEmitter {
       `Manage your own scheduled tasks via the Nebula API. Use the Bash tool with curl.
 
 Agent ID: ${agentId}
-API base: http://localhost:8080
+API base: ${API_BASE}
 Auth header: Authorization: Bearer ${apiToken}
 
 Current tasks:
 ${taskList}
 
 ## Create
-curl -s -X POST http://localhost:8080/api/agents/${agentId}/tasks \\
+curl -s -X POST ${API_BASE}/api/agents/${agentId}/tasks \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"name":"Name","prompt":"What to do","cron_expression":"0 9 * * *","enabled":true}'
 
 ## List
-curl -s http://localhost:8080/api/agents/${agentId}/tasks -H "Authorization: Bearer ${apiToken}"
+curl -s ${API_BASE}/api/agents/${agentId}/tasks -H "Authorization: Bearer ${apiToken}"
 
 ## Update
-curl -s -X PUT http://localhost:8080/api/tasks/{task_id} \\
+curl -s -X PUT ${API_BASE}/api/tasks/{task_id} \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"name":"New Name","cron_expression":"*/30 * * * *","enabled":false}'
 
 ## Delete
-curl -s -X DELETE http://localhost:8080/api/tasks/{task_id} -H "Authorization: Bearer ${apiToken}"
+curl -s -X DELETE ${API_BASE}/api/tasks/{task_id} -H "Authorization: Bearer ${apiToken}"
 
 Cron format: minute hour day-of-month month day-of-week (e.g. "0 9 * * *" = daily 9am)`);
 
@@ -381,32 +382,32 @@ Working directory: ${agentDir}
       `Manage skills via the Nebula API. Use the Bash tool with curl.
 
 Your agent ID: ${agentId}
-API base: http://localhost:8080
+API base: ${API_BASE}
 Auth header: Authorization: Bearer ${apiToken}
 
 ## List your skills (agent + org-wide)
-curl -s http://localhost:8080/api/agents/${agentId}/skills -H "Authorization: Bearer ${apiToken}"
+curl -s ${API_BASE}/api/agents/${agentId}/skills -H "Authorization: Bearer ${apiToken}"
 
 ## List all org skills
-curl -s http://localhost:8080/api/skills -H "Authorization: Bearer ${apiToken}"
+curl -s ${API_BASE}/api/skills -H "Authorization: Bearer ${apiToken}"
 
 ## Create agent-scoped skill (only you can use it)
-curl -s -X POST http://localhost:8080/api/agents/${agentId}/skills \\
+curl -s -X POST ${API_BASE}/api/agents/${agentId}/skills \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"name":"skill-name","description":"What this skill does","content":"Instructions for this skill","scope":"agent"}'
 
 ## Create org-wide skill (all agents can use it)
-curl -s -X POST http://localhost:8080/api/skills \\
+curl -s -X POST ${API_BASE}/api/skills \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"name":"skill-name","org_id":"${agentOrgId}","description":"What this skill does","content":"Instructions for this skill"}'
 
 ## Update a skill
-curl -s -X PUT http://localhost:8080/api/skills/{skill_id} \\
+curl -s -X PUT ${API_BASE}/api/skills/{skill_id} \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"name":"new-name","description":"Updated desc","content":"Updated content"}'
 
 ## Delete a skill
-curl -s -X DELETE http://localhost:8080/api/skills/{skill_id} -H "Authorization: Bearer ${apiToken}"
+curl -s -X DELETE ${API_BASE}/api/skills/{skill_id} -H "Authorization: Bearer ${apiToken}"
 
 ## Tips
 - Agent-scoped skills are only visible to you. Org-scoped skills are visible to ALL agents.
@@ -427,20 +428,20 @@ ${notifyTo ? `Default recipient: ${notifyTo}` : ''}
 ${smtpFrom ? `Sending from: ${smtpFrom}` : ''}
 
 ## Read inbox
-curl -s "http://localhost:8080/api/mail/inbox?limit=10&folder=INBOX" -H "Authorization: Bearer ${apiToken}"
+curl -s "${API_BASE}/api/mail/inbox?limit=10&folder=INBOX" -H "Authorization: Bearer ${apiToken}"
 
 ## Read specific email (by UID from inbox listing)
-curl -s "http://localhost:8080/api/mail/{uid}" -H "Authorization: Bearer ${apiToken}"
+curl -s "${API_BASE}/api/mail/{uid}" -H "Authorization: Bearer ${apiToken}"
 
 ## Search
-curl -s "http://localhost:8080/api/mail/search?from=someone@example.com&limit=10" -H "Authorization: Bearer ${apiToken}"
+curl -s "${API_BASE}/api/mail/search?from=someone@example.com&limit=10" -H "Authorization: Bearer ${apiToken}"
 Params: from, to, subject, text, since (date), before (date), unseen (flag), folder
 
 ## List folders
-curl -s "http://localhost:8080/api/mail/folders" -H "Authorization: Bearer ${apiToken}"
+curl -s "${API_BASE}/api/mail/folders" -H "Authorization: Bearer ${apiToken}"
 
 ## Send email
-curl -s -X POST http://localhost:8080/api/mail/send \\
+curl -s -X POST ${API_BASE}/api/mail/send \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"to":"${notifyTo || 'recipient@example.com'}","subject":"Subject","body":"Message body"}'
 Optional fields: cc, bcc, html, in_reply_to (message ID for threading)`);
@@ -476,17 +477,17 @@ ${peerAgents.length > 0 ? `Example: "@notify ${peerAgents[0].name} please handle
         `Communicate with peer agents in your organization via the Nebula API. Use the Bash tool with curl.
 
 Your Agent ID: ${agentId}
-API base: http://localhost:8080
+API base: ${API_BASE}
 Auth header: Authorization: Bearer ${apiToken}
 
 Peer agents:
 ${peerList}
 
 ## List all agents
-curl -s http://localhost:8080/api/agents -H "Authorization: Bearer ${apiToken}"
+curl -s ${API_BASE}/api/agents -H "Authorization: Bearer ${apiToken}"
 
 ## Read another agent's recent messages
-curl -s "http://localhost:8080/api/agents/{agent_id}/messages?limit=5" -H "Authorization: Bearer ${apiToken}"
+curl -s "${API_BASE}/api/agents/{agent_id}/messages?limit=5" -H "Authorization: Bearer ${apiToken}"
 
 ## Talk to another agent
 Write @TheirName in your response to pull them into the current conversation.
@@ -514,7 +515,7 @@ IMPORTANT: Write the agent's exact name after @ — e.g. @${peerAgents.length > 
       `Manage multi-agent projects via the Nebula API. Use the Bash tool with curl.
 
 Agent ID: ${agentId}
-API base: http://localhost:8080
+API base: ${API_BASE}
 Auth header: Authorization: Bearer ${apiToken}
 
 Current projects:
@@ -524,7 +525,7 @@ Available agents:
 ${agentsList}
 
 ## List Projects
-curl -s http://localhost:8080/api/projects -H "Authorization: Bearer ${apiToken}"
+curl -s ${API_BASE}/api/projects -H "Authorization: Bearer ${apiToken}"
 
 ## Create Project (full scaffold in one call)
 Before creating, gather from the user:
@@ -535,7 +536,7 @@ Before creating, gather from the user:
 - Which agents should contribute
 - Initial milestones and deliverables (optional — can be added later in project conversation)
 
-curl -s -X POST http://localhost:8080/api/projects \\
+curl -s -X POST ${API_BASE}/api/projects \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{
     "name": "Project Name",
@@ -568,7 +569,7 @@ IMPORTANT: The API rejects duplicate git_remote_url per org. Check the project l
 Tell the user the project has been created and they should switch to the **project conversation** (in the Projects section of the sidebar) to continue working on it.
 
 ## Get Project Detail
-curl -s http://localhost:8080/api/projects/{project_id} -H "Authorization: Bearer ${apiToken}"`);
+curl -s ${API_BASE}/api/projects/{project_id} -H "Authorization: Bearer ${apiToken}"`);
     }
 
     // Project skills (when executing in project context)
@@ -605,7 +606,7 @@ Repo conventions:
 - \`vault/\` — shared files (specs, assets, references)
 - \`CLAUDE.md\` — project knowledge base (update when you discover important information)
 
-API base: http://localhost:8080
+API base: ${API_BASE}
 Auth header: Authorization: Bearer ${apiToken}
 
 ## Your Assigned Deliverables
@@ -621,24 +622,24 @@ ${deliverableList}
 7. Update status to "done" and @mention the coordinator for review
 
 ## Update Deliverable Status
-curl -s -X PUT http://localhost:8080/api/projects/deliverables/{deliverable_id} \\
+curl -s -X PUT ${API_BASE}/api/projects/deliverables/{deliverable_id} \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"status":"in_progress"}'
 Statuses: pending, in_progress, done, blocked
 
 ## Branches
-curl -s http://localhost:8080/api/projects/${project.id}/branches -H "Authorization: Bearer ${apiToken}"
+curl -s ${API_BASE}/api/projects/${project.id}/branches -H "Authorization: Bearer ${apiToken}"
 
 ## Create PR (when deliverable is ready for review)
-curl -s -X POST http://localhost:8080/api/projects/${project.id}/pr \\
+curl -s -X POST ${API_BASE}/api/projects/${project.id}/pr \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"branch":"${options.branchName || 'feature/xxx'}","title":"PR title","body":"Closes deliverable: {name}\\n\\n{description}"}'
 
 ## List PRs
-curl -s http://localhost:8080/api/projects/${project.id}/pr -H "Authorization: Bearer ${apiToken}"
+curl -s ${API_BASE}/api/projects/${project.id}/pr -H "Authorization: Bearer ${apiToken}"
 
 ## Post to Project Conversation
-curl -s -X POST http://localhost:8080/api/projects/${project.id}/messages \\
+curl -s -X POST ${API_BASE}/api/projects/${project.id}/messages \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"content":"Message text","agent_id":"${agentId}"}'`);
 
@@ -692,50 +693,50 @@ Do NOT wait for the user to tell you what to do next. When unblocked, immediatel
 ## Team
 ${agentList}
 
-API base: http://localhost:8080
+API base: ${API_BASE}
 Auth header: Authorization: Bearer ${apiToken}
 
 ## Project Status
-curl -s http://localhost:8080/api/projects/${project.id} -H "Authorization: Bearer ${apiToken}"
+curl -s ${API_BASE}/api/projects/${project.id} -H "Authorization: Bearer ${apiToken}"
 
 ## Milestones & Deliverables
-curl -s http://localhost:8080/api/projects/${project.id}/milestones -H "Authorization: Bearer ${apiToken}"
+curl -s ${API_BASE}/api/projects/${project.id}/milestones -H "Authorization: Bearer ${apiToken}"
 
 ## Create Milestone
-curl -s -X POST http://localhost:8080/api/projects/${project.id}/milestones \\
+curl -s -X POST ${API_BASE}/api/projects/${project.id}/milestones \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"name":"Milestone Name","description":"What this milestone covers"}'
 
 ## Create Deliverable (under a milestone)
-curl -s -X POST http://localhost:8080/api/projects/milestones/{milestone_id}/deliverables \\
+curl -s -X POST ${API_BASE}/api/projects/milestones/{milestone_id}/deliverables \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"name":"Deliverable Name","pass_criteria":"What must be true for this to be done","branch_name":"feature/xxx","assigned_agent_id":"{agent_id}"}'
 
 ## Update Deliverable
-curl -s -X PUT http://localhost:8080/api/projects/deliverables/{deliverable_id} \\
+curl -s -X PUT ${API_BASE}/api/projects/deliverables/{deliverable_id} \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"status":"done","assigned_agent_id":"{agent_id}","branch_name":"feature/xxx"}'
 
 ## Delete Deliverable
-curl -s -X DELETE http://localhost:8080/api/projects/deliverables/{deliverable_id} \\
+curl -s -X DELETE ${API_BASE}/api/projects/deliverables/{deliverable_id} \\
   -H "Authorization: Bearer ${apiToken}"
 
 ## Assign Agent to Project
-curl -s -X POST http://localhost:8080/api/projects/${project.id}/agents \\
+curl -s -X POST ${API_BASE}/api/projects/${project.id}/agents \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"agent_id":"{agent_id}","role":"contributor"}'
 
 ## Update Agent Role
-curl -s -X PUT http://localhost:8080/api/projects/${project.id}/agents/{agent_id} \\
+curl -s -X PUT ${API_BASE}/api/projects/${project.id}/agents/{agent_id} \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"role":"contributor"}'
 
 ## Remove Agent from Project
-curl -s -X DELETE http://localhost:8080/api/projects/${project.id}/agents/{agent_id} \\
+curl -s -X DELETE ${API_BASE}/api/projects/${project.id}/agents/{agent_id} \\
   -H "Authorization: Bearer ${apiToken}"
 
 ## Merge PR
-curl -s -X POST "http://localhost:8080/api/projects/${project.id}/pr/{number}/merge?delete_branch=true" \\
+curl -s -X POST "${API_BASE}/api/projects/${project.id}/pr/{number}/merge?delete_branch=true" \\
   -H "Authorization: Bearer ${apiToken}"
 Add \`?delete_branch=true\` to delete the source branch after merge (recommended to keep branches clean).
 
@@ -968,13 +969,13 @@ You have read-only access to memories for reference during this task.
 
 ### search_memory(query)
 Search for relevant knowledge across personal and project memories.
-curl -s -X POST http://localhost:8080/api/memory/search \\
+curl -s -X POST ${API_BASE}/api/memory/search \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"query": "...", "agent_id": "${agentId}"${options.projectId ? `, "project_id": "${options.projectId}"` : ''}}'
 
 ### read_memory(id)
 Load full content of a memory concept.
-curl -s http://localhost:8080/api/agents/${agentId}/memory/{memory_id} \\
+curl -s ${API_BASE}/api/agents/${agentId}/memory/{memory_id} \\
   -H "Authorization: Bearer ${apiToken}"
 
 You cannot modify memories during task execution. Include any learnings in your work summary when the task completes.`);
@@ -989,35 +990,35 @@ You have access to two memory scopes:
 
 Agent ID: ${agentId}
 Project ID: ${options.projectId}
-API base: http://localhost:8080
+API base: ${API_BASE}
 Auth header: Authorization: Bearer ${apiToken}
 
 ## Available Operations
 
 ### search_memory(query)
 Search across personal + project memories. Returns results tagged with source.
-curl -s -X POST http://localhost:8080/api/memory/search \\
+curl -s -X POST ${API_BASE}/api/memory/search \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"query": "...", "agent_id": "${agentId}", "project_id": "${options.projectId}"}'
 
 ### read_memory(id)
 Load full content of any visible memory.
-curl -s http://localhost:8080/api/agents/${agentId}/memory/{memory_id} -H "Authorization: Bearer ${apiToken}"
-curl -s http://localhost:8080/api/projects/${options.projectId}/memory/{memory_id} -H "Authorization: Bearer ${apiToken}"
+curl -s ${API_BASE}/api/agents/${agentId}/memory/{memory_id} -H "Authorization: Bearer ${apiToken}"
+curl -s ${API_BASE}/api/projects/${options.projectId}/memory/{memory_id} -H "Authorization: Bearer ${apiToken}"
 
 ### update_memory(title, description, content) — PROJECT memory only
 Create or update a project memory concept.
-curl -s -X POST http://localhost:8080/api/projects/${options.projectId}/memory \\
+curl -s -X POST ${API_BASE}/api/projects/${options.projectId}/memory \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"title": "...", "description": "...", "content": "..."}'
 
 To update an existing memory:
-curl -s -X PUT http://localhost:8080/api/projects/${options.projectId}/memory/{memory_id} \\
+curl -s -X PUT ${API_BASE}/api/projects/${options.projectId}/memory/{memory_id} \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"title": "...", "description": "...", "content": "..."}'
 
 ### delete_memory(id) — PROJECT memory only
-curl -s -X DELETE http://localhost:8080/api/projects/${options.projectId}/memory/{memory_id} -H "Authorization: Bearer ${apiToken}"
+curl -s -X DELETE ${API_BASE}/api/projects/${options.projectId}/memory/{memory_id} -H "Authorization: Bearer ${apiToken}"
 
 Note: You cannot modify personal memory from project context. If you discover something broadly useful, note it in your work summary for your main identity to review.`);
     } else {
@@ -1030,40 +1031,40 @@ You have a persistent memory system for storing knowledge and learnings.
 You are updating your PERSONAL memory — knowledge that persists across all contexts.
 
 Agent ID: ${agentId}
-API base: http://localhost:8080
+API base: ${API_BASE}
 Auth header: Authorization: Bearer ${apiToken}
 
 ## Available Operations
 
 ### search_memory(query)
 Search your memories by keyword. Returns ranked results with snippets.
-curl -s -X POST http://localhost:8080/api/memory/search \\
+curl -s -X POST ${API_BASE}/api/memory/search \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"query": "...", "agent_id": "${agentId}"}'
 
 ### read_memory(id)
 Load full content of a memory concept.
-curl -s http://localhost:8080/api/agents/${agentId}/memory/{memory_id} \\
+curl -s ${API_BASE}/api/agents/${agentId}/memory/{memory_id} \\
   -H "Authorization: Bearer ${apiToken}"
 
 ### update_memory(title, description, content)
 Create or update a memory concept. Title must be unique (case-insensitive).
-curl -s -X POST http://localhost:8080/api/agents/${agentId}/memory \\
+curl -s -X POST ${API_BASE}/api/agents/${agentId}/memory \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"title": "...", "description": "...", "content": "..."}'
 
 To update an existing memory:
-curl -s -X PUT http://localhost:8080/api/agents/${agentId}/memory/{memory_id} \\
+curl -s -X PUT ${API_BASE}/api/agents/${agentId}/memory/{memory_id} \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"title": "...", "description": "...", "content": "..."}'
 
 ### delete_memory(id)
 Remove a memory concept.
-curl -s -X DELETE http://localhost:8080/api/agents/${agentId}/memory/{memory_id} -H "Authorization: Bearer ${apiToken}"
+curl -s -X DELETE ${API_BASE}/api/agents/${agentId}/memory/{memory_id} -H "Authorization: Bearer ${apiToken}"
 
 ### list_memories
 List all your memory titles and descriptions.
-curl -s http://localhost:8080/api/agents/${agentId}/memory -H "Authorization: Bearer ${apiToken}"
+curl -s ${API_BASE}/api/agents/${agentId}/memory -H "Authorization: Bearer ${apiToken}"
 
 ## Guidelines
 - Store knowledge worth recalling in future sessions (patterns, decisions, preferences, context)
