@@ -51,7 +51,7 @@ export function pickModelForRuntime(runtimes: RuntimeInfo[], runtimeId: string, 
 
 interface Props {
   value: string;
-  onChange: (runtime: string) => void;
+  onChange: (runtime: string, info?: RuntimeInfo) => void;
 }
 
 export default function RuntimeSelector({ value, onChange }: Props) {
@@ -93,7 +93,7 @@ export default function RuntimeSelector({ value, onChange }: Props) {
             key={rt.id}
             type="button"
             disabled={!rt.available}
-            onClick={() => onChange(rt.id)}
+            onClick={() => onChange(rt.id, rt)}
             title={rt.available ? `${rt.name} ${rt.version || ''} — ${rt.binaryPath}` : `${rt.name} (not installed)`}
             className={`flex-1 py-1.5 px-2 text-xs rounded-lg border transition-colors truncate ${
               value === rt.id
