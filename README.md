@@ -164,6 +164,25 @@ Agents can run on external machines, connecting back to Nebula via WebSocket:
 - **Agent App** (`agent-app/`) — Tauri desktop app (macOS, Windows) with GUI
 - **Agent Client** (`agent-client/`) — Headless CLI client for servers
 
+## Security Model
+
+Nebula runs all agents within a single Docker container. The container is the primary isolation boundary — agents cannot access the host filesystem or network beyond what Docker exposes.
+
+**What's isolated:**
+- Agents from the host (Docker container boundary)
+- Agent data at rest (secrets encrypted with AES-256-GCM, write-only in UI)
+- Inter-agent communication (routed through the platform via `@mention`, not direct access)
+- Session auth errors (detected and surfaced immediately, no silent failures)
+
+**Known limitation — shared filesystem within container:**
+
+All agents in the same container share the same Linux user and filesystem namespace. An agent could theoretically read another agent's working directory or the SQLite database file. In practice, agents operate within their assigned working directories and interact with peers only through Nebula's routing layer. This is acceptable for single-owner deployments where you control all agents.
+
+**If you need stronger isolation:**
+- Run separate Nebula instances (one per trust boundary)
+- Use the remote agent feature to run agents on dedicated machines
+- Per-agent filesystem isolation via mount namespaces (bubblewrap) is tracked as a future enhancement
+
 ## License
 
 [AGPL-3.0](LICENSE) — free to use, modify, and self-host. Network use requires source disclosure of modifications.
