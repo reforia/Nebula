@@ -279,7 +279,14 @@ export class ClaudeCLIBackend extends ExecutionBackend {
         if (exitCode !== 0) {
           fs.mkdirSync(logDir, { recursive: true });
           fs.writeFileSync(path.join(logDir, `error-${Date.now()}.log`), clean);
-          throw new Error(`CC exit code ${exitCode}: ${clean.slice(-500)}`);
+
+          // Session error patterns may appear early in the output and get
+          // truncated by slice(-500). Scan the full output so the executor's
+          // session recovery logic can match them.
+          const sessionNotFound = clean.match(/No conversation found with session ID[^\n]*/i);
+          const sessionInUse = clean.match(/Session ID [^\n]* is already in use/i);
+          const hint = sessionNotFound?.[0] || sessionInUse?.[0] || '';
+          throw new Error(`CC exit code ${exitCode}: ${hint ? hint + ' — ' : ''}${clean.slice(-500)}`);
         }
 
         try {

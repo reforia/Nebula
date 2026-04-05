@@ -38,7 +38,7 @@ class AgentExecutor extends EventEmitter {
    * so the agent doesn't lose all conversational context.
    * Approximates tokens at ~4 chars/token, returns empty string if no history.
    */
-  _buildContextRecovery(conversationId, tokenBudget = 10000) {
+  _buildContextRecovery(conversationId, tokenBudget = 25000) {
     const charBudget = tokenBudget * 4;
     const messages = getAll(
       'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at DESC',
@@ -1156,6 +1156,10 @@ Help the user complete the setup. Ask about your role if not set. Once you have 
       timeoutMs = agent.timeout_ms || orgDefaultTimeout;
     }
 
+    // Recovery token budget: agent override > org setting > default (25000)
+    const recoveryTokenBudget = agent.recovery_token_budget
+      || parseInt(getOrgSetting(agentOrgId, 'recovery_token_budget')) || 25000;
+
     // --- Execute via backend ---
 
     const abortController = new AbortController();
@@ -1171,7 +1175,7 @@ Help the user complete the setup. Ask about your role if not set. Once you have 
     // If session was reset (branch change), prepend conversation history for continuity
     let execPrompt = prompt;
     if (sessionWasReset) {
-      const recovery = this._buildContextRecovery(conversation.id);
+      const recovery = this._buildContextRecovery(conversation.id, recoveryTokenBudget);
       if (recovery) execPrompt = recovery + prompt;
     }
 
@@ -1197,13 +1201,20 @@ Help the user complete the setup. Ask about your role if not set. Once you have 
           const errMsg = String(execErr.message);
           const isStaleSession = /No conversation found with session ID/i.test(errMsg);
           const isSessionInUse = /Session ID .* is already in use/i.test(errMsg);
-          if (isStaleSession || isSessionInUse) {
-            console.warn(`[executor] Session error for conversation ${conversation.id} (session ${conversation.session_id}): ${isSessionInUse ? 'in use' : 'not found'}, resetting and retrying`);
+          // CC CLI exit code 1 with zero usage = session failed to start (e.g. purged, corrupted).
+          // Recover even if the specific error text wasn't captured in the truncated output.
+          const isZeroUsageExit = conversation.session_initialized
+            && /CC exit code 1/i.test(errMsg)
+            && /"input_tokens"\s*:\s*0/.test(errMsg)
+            && /"output_tokens"\s*:\s*0/.test(errMsg);
+          if (isStaleSession || isSessionInUse || isZeroUsageExit) {
+            const reason = isSessionInUse ? 'in use' : isStaleSession ? 'not found' : 'zero-usage exit (session likely purged)';
+            console.warn(`[executor] Session error for conversation ${conversation.id} (session ${conversation.session_id}): ${reason}, resetting and retrying`);
             const newSessionId = generateId();
             run('UPDATE conversations SET session_initialized = 0, session_id = ?, session_branch = ?, updated_at = datetime(\'now\') WHERE id = ?',
               [newSessionId, resolvedBranch, conversation.id]);
             conversation = { ...conversation, session_initialized: 0, session_id: newSessionId, session_branch: resolvedBranch };
-            const recovery = this._buildContextRecovery(conversation.id);
+            const recovery = this._buildContextRecovery(conversation.id, recoveryTokenBudget);
             const recoveredPrompt = recovery ? recovery + prompt : prompt;
             result = await backend.execute({
               prompt: recoveredPrompt, systemPrompt, agent, agentDir, conversation, options: execOpts,
