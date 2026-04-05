@@ -455,7 +455,7 @@ router.post('/feedback', async (req, res) => {
 // POST /api/cleanup/run — trigger cleanup manually
 router.post('/cleanup/run', (req, res) => {
   try {
-    const result = runCleanupNow(req.orgId);
+    const result = runCleanupNow();
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -201,25 +201,27 @@ function triggerDreaming(orgId) {
 }
 
 /**
- * Run cleanup with current settings. Returns result summary.
+ * Run cleanup across all orgs. Sessions and worktrees are global;
+ * dreaming runs per-org based on each org's settings.
  */
-function performCleanup(orgId) {
-  const settings = getCleanupSettings(orgId);
-  if (!settings.enabled) return null;
+function performCleanup() {
+  const result = { timestamp: new Date().toISOString(), sessions: null, worktrees: null, dreaming: {} };
 
-  const result = { timestamp: new Date().toISOString(), sessions: null, worktrees: null, dreaming: null };
+  // Sessions and worktrees are global (not org-scoped)
+  try { result.sessions = cleanStaleSessions(); }
+  catch (err) { console.error('[cleanup] Session cleanup failed:', err.message); }
 
-  if (settings.sessions) {
-    try { result.sessions = cleanStaleSessions(); }
-    catch (err) { console.error('[cleanup] Session cleanup failed:', err.message); }
-  }
-  if (settings.worktrees) {
-    try { result.worktrees = cleanStaleWorktrees(); }
-    catch (err) { console.error('[cleanup] Worktree cleanup failed:', err.message); }
-  }
-  if (settings.dreaming) {
-    try { result.dreaming = triggerDreaming(orgId); }
-    catch (err) { console.error('[cleanup] Dreaming trigger failed:', err.message); }
+  try { result.worktrees = cleanStaleWorktrees(); }
+  catch (err) { console.error('[cleanup] Worktree cleanup failed:', err.message); }
+
+  // Dreaming runs per-org
+  const orgs = getAll('SELECT id, name FROM organizations');
+  for (const org of orgs) {
+    const settings = getCleanupSettings(org.id);
+    if (settings.dreaming) {
+      try { result.dreaming[org.id] = triggerDreaming(org.id); }
+      catch (err) { console.error(`[cleanup] Dreaming trigger failed for org "${org.name}":`, err.message); }
+    }
   }
 
   lastResult = result;
@@ -227,23 +229,30 @@ function performCleanup(orgId) {
 }
 
 /**
- * Schedule the cron task based on current settings.
+ * Schedule the cleanup cron. Uses the earliest (most frequent) cron
+ * across all orgs, or falls back to the default.
  */
-function schedule(orgId) {
+function schedule() {
   if (cleanupTask) { cleanupTask.stop(); cleanupTask = null; }
 
-  const settings = getCleanupSettings(orgId);
-  if (!settings.enabled) {
-    console.log('[cleanup] Service disabled');
+  // Check if any org has cleanup enabled
+  const orgs = getAll('SELECT id FROM organizations');
+  const anyEnabled = orgs.some(o => getCleanupSettings(o.id).enabled);
+  if (!anyEnabled) {
+    console.log('[cleanup] Service disabled (no org has cleanup enabled)');
     return;
   }
 
+  // Use the first org's cron that has cleanup enabled, or default
+  const firstEnabled = orgs.find(o => getCleanupSettings(o.id).enabled);
+  const cron = firstEnabled ? getCleanupSettings(firstEnabled.id).cron : DEFAULT_CRON;
+
   try {
-    cleanupTask = new Cron(settings.cron, { timezone: SYS_TZ }, () => performCleanup(orgId));
-    console.log(`[cleanup] Scheduled — ${settings.cron} (${SYS_TZ})`);
+    cleanupTask = new Cron(cron, { timezone: SYS_TZ }, () => performCleanup());
+    console.log(`[cleanup] Scheduled — ${cron} (${SYS_TZ})`);
   } catch (err) {
-    console.error(`[cleanup] Invalid cron "${settings.cron}", falling back to default`);
-    cleanupTask = new Cron(DEFAULT_CRON, { timezone: SYS_TZ }, () => performCleanup(orgId));
+    console.error(`[cleanup] Invalid cron "${cron}", falling back to default`);
+    cleanupTask = new Cron(DEFAULT_CRON, { timezone: SYS_TZ }, () => performCleanup());
   }
 }
 
@@ -253,13 +262,13 @@ export function initCleanupService() {
 }
 
 /** Reschedule after settings change. */
-export function rescheduleCleanup(orgId) {
-  schedule(orgId);
+export function rescheduleCleanup() {
+  schedule();
 }
 
 /** Trigger cleanup manually. Returns result. */
-export function runCleanupNow(orgId) {
-  return performCleanup(orgId) || { timestamp: new Date().toISOString(), disabled: true };
+export function runCleanupNow() {
+  return performCleanup() || { timestamp: new Date().toISOString(), disabled: true };
 }
 
 /** Get last result and current schedule. */
