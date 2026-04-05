@@ -133,6 +133,11 @@ export default function VaultFiles({ agentId }: Props) {
         <MarkdownViewer
           initialContent={viewing.content}
           filePath={viewing.name}
+          editable
+          onSave={async (content) => {
+            await uploadVaultFile(agentId, new File([content], viewing.name, { type: 'text/markdown' }));
+            refresh();
+          }}
           onClose={() => setViewing(null)}
         />
       )}
