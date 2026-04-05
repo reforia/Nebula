@@ -30,6 +30,8 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
   const [notifyEmail, setNotifyEmail] = useState(!!agent.notify_email);
   const [timeoutMin, setTimeoutMin] = useState<number | ''>(agent.timeout_ms ? Math.round(agent.timeout_ms / 60000) : '');
   const [orgDefaultTimeoutMin, setOrgDefaultTimeoutMin] = useState(10);
+  const [recoveryBudget, setRecoveryBudget] = useState<number | ''>(agent.recovery_token_budget || '');
+  const [orgDefaultRecoveryBudget, setOrgDefaultRecoveryBudget] = useState(25000);
   const [executionMode, setExecutionMode] = useState<'local' | 'remote'>(agent.execution_mode || 'local');
   const [remoteToken, setRemoteToken] = useState<string | null>(null);
   const [hasRemoteToken, setHasRemoteToken] = useState(false);
@@ -60,6 +62,7 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
     }).catch(() => {});
     getSettings().then(s => {
       setOrgDefaultTimeoutMin(Math.round(parseInt(s.default_timeout_ms || '600000') / 60000));
+      setOrgDefaultRecoveryBudget(parseInt(s.recovery_token_budget || '25000') || 25000);
     }).catch(() => {});
     refreshSecrets();
   }, [agent.id]);
@@ -74,6 +77,7 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
         enabled: enabled as any,
         notify_email: notifyEmail as any,
         timeout_ms: timeoutMin ? timeoutMin * 60000 : null,
+        recovery_token_budget: recoveryBudget || null,
         execution_mode: executionMode,
         nas_paths: nasPaths as any,
         claude_md: claudeMd,
@@ -187,6 +191,13 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
                   placeholder={`Org default (${orgDefaultTimeoutMin})`}
                   className="w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded-lg text-sm text-nebula-text focus:outline-none focus:border-nebula-accent/50" />
                 <p className="text-[10px] text-nebula-muted mt-1">Leave empty to use org default. Tasks can override with their own timeout.</p>
+              </div>
+              <div>
+                <label className="text-xs text-nebula-muted block mb-1">Recovery Token Budget</label>
+                <input type="number" value={recoveryBudget} onChange={e => { const v = e.target.value; setRecoveryBudget(v === '' ? '' : (parseInt(v) || 25000)); }} min={1000} max={200000} step={1000}
+                  placeholder={`Org default (${orgDefaultRecoveryBudget.toLocaleString()})`}
+                  className="w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded-lg text-sm text-nebula-text focus:outline-none focus:border-nebula-accent/50" />
+                <p className="text-[10px] text-nebula-muted mt-1">Max tokens of conversation history to recover on session reset (~4 chars/token). Leave empty for org default.</p>
               </div>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 text-sm">

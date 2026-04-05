@@ -150,6 +150,19 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                 <p className="text-[10px] text-nebula-muted mt-1">Default execution timeout for new agents. Each agent can override this in their settings.</p>
               </div>
 
+              {/* Recovery token budget */}
+              <div>
+                <label className="text-xs text-nebula-muted block mb-1">Session Recovery Token Budget</label>
+                <input
+                  type="number"
+                  value={parseInt(settings.recovery_token_budget || '25000') || 25000}
+                  onChange={e => updateSetting('recovery_token_budget', String(parseInt(e.target.value) || 25000))}
+                  min={1000} max={200000} step={1000}
+                  className="w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded text-sm text-nebula-text focus:outline-none focus:border-nebula-accent"
+                />
+                <p className="text-[10px] text-nebula-muted mt-1">Max tokens of conversation history to recover when an agent session resets (~4 chars/token). Each agent can override this.</p>
+              </div>
+
               {/* Task stagger */}
               <div>
                 <label className="text-xs text-nebula-muted block mb-1">Task Stagger Delay (minutes)</label>

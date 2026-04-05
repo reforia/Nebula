@@ -21,6 +21,7 @@ router.get('/settings', (req, res) => {
     'default_timeout_ms',
     'task_stagger_ms',
     'default_runtime',
+    'recovery_token_budget',
     'cleanup_enabled', 'cleanup_cron', 'cleanup_sessions', 'cleanup_worktrees', 'cleanup_dreaming',
   ];
 
@@ -50,6 +51,7 @@ router.put('/settings', (req, res) => {
     'default_timeout_ms',
     'task_stagger_ms',
     'default_runtime',
+    'recovery_token_budget',
     'cleanup_enabled', 'cleanup_cron', 'cleanup_sessions', 'cleanup_worktrees', 'cleanup_dreaming',
   ];
 
