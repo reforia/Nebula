@@ -280,6 +280,12 @@ export class ClaudeCLIBackend extends ExecutionBackend {
           fs.mkdirSync(logDir, { recursive: true });
           fs.writeFileSync(path.join(logDir, `error-${Date.now()}.log`), clean);
 
+          // CC CLI may exit with code 1 (not 2) for API-level auth failures.
+          // Detect from the JSON output and surface a clear message.
+          if (/authentication_error|authentication_failed|Invalid authentication credentials/i.test(clean)) {
+            throw new Error('Claude Code auth expired — re-authenticate with: claude login');
+          }
+
           // Session error patterns may appear early in the output and get
           // truncated by slice(-500). Scan the full output so the executor's
           // session recovery logic can match them.

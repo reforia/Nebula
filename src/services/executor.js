@@ -1172,9 +1172,13 @@ Help the user complete the setup. Ask about your role if not set. Once you have 
     this.typingState.set(contextKey, typingInfo);
     this.emit('agent_typing', { ...typingInfo, active: true });
 
-    // If session was reset (branch change), prepend conversation history for continuity
+    // If the session was reset (branch change) or is uninitialized but has prior messages
+    // (e.g. session was reset by a failed recovery attempt), inject conversation history
     let execPrompt = prompt;
-    if (sessionWasReset) {
+    const needsRecovery = sessionWasReset || (!conversation.session_initialized && getOne(
+      'SELECT 1 FROM messages WHERE conversation_id = ? LIMIT 1', [conversation.id]
+    ));
+    if (needsRecovery) {
       const recovery = this._buildContextRecovery(conversation.id, recoveryTokenBudget);
       if (recovery) execPrompt = recovery + prompt;
     }
@@ -1199,6 +1203,10 @@ Help the user complete the setup. Ask about your role if not set. Once you have 
           // purged (container restart, cleanup, etc.) or are locked by a prior run.
           // Reset session_initialized and retry with a fresh session, with context recovery
           const errMsg = String(execErr.message);
+
+          // Auth errors are not recoverable via session reset — bail immediately
+          if (/auth expired/i.test(errMsg)) throw execErr;
+
           const isStaleSession = /No conversation found with session ID/i.test(errMsg);
           const isSessionInUse = /Session ID .* is already in use/i.test(errMsg);
           // CC CLI exit code 1 with zero usage = session failed to start (e.g. purged, corrupted).
