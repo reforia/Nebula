@@ -44,6 +44,9 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
   const [newASecretKey, setNewASecretKey] = useState('');
   const [newASecretValue, setNewASecretValue] = useState('');
   const [secretSaving, setSecretSaving] = useState(false);
+  const [editingASecretId, setEditingASecretId] = useState<string | null>(null);
+  const [editASecretValue, setEditASecretValue] = useState('');
+  const [editASecretSaving, setEditASecretSaving] = useState(false);
 
   const refreshSecrets = () => { getAgentSecrets(agent.id).then(setAgentSecretsList).catch(() => {}); };
 
@@ -327,18 +330,65 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
               ) : (
                 <div className="space-y-1.5">
                   {agentSecretsList.map(s => (
-                    <div key={s.id} className="flex items-center justify-between bg-nebula-bg border border-nebula-border rounded-lg px-3 py-2">
-                      <div className="flex-1 min-w-0">
-                        <code className="text-sm text-nebula-accent font-mono">{`{{${s.key}}}`}</code>
-                        <span className="text-[11px] text-nebula-muted ml-3">agent override</span>
+                    <div key={s.id} className="bg-nebula-bg border border-nebula-border rounded-lg px-3 py-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <code className="text-sm text-nebula-accent font-mono">{`{{${s.key}}}`}</code>
+                          <span className="text-[11px] text-nebula-muted ml-3">agent override</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-nebula-muted font-mono">••••••••</span>
+                          <button onClick={() => { setEditingASecretId(s.id); setEditASecretValue(''); }}
+                            className="text-xs text-nebula-accent hover:brightness-110 px-1">Edit</button>
+                          <button onClick={async () => {
+                            if (!confirm(`Delete agent secret ${s.key}?`)) return;
+                            await deleteAgentSecret(agent.id, s.id); refreshSecrets();
+                          }} className="text-xs text-red-400 hover:text-red-300 px-1">Del</button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-nebula-muted font-mono">••••••••</span>
-                        <button onClick={async () => {
-                          if (!confirm(`Delete agent secret ${s.key}?`)) return;
-                          await deleteAgentSecret(agent.id, s.id); refreshSecrets();
-                        }} className="text-xs text-red-400 hover:text-red-300 px-1">Del</button>
-                      </div>
+                      {editingASecretId === s.id && (
+                        <div className="flex gap-2 mt-2">
+                          <input
+                            type="password"
+                            value={editASecretValue}
+                            onChange={e => setEditASecretValue(e.target.value)}
+                            onKeyDown={async e => {
+                              if (e.key === 'Enter' && editASecretValue.trim()) {
+                                setEditASecretSaving(true);
+                                try {
+                                  await createAgentSecret(agent.id, s.key, editASecretValue.trim());
+                                  setEditingASecretId(null); setEditASecretValue('');
+                                  refreshSecrets();
+                                } catch {} finally { setEditASecretSaving(false); }
+                              }
+                            }}
+                            placeholder="New secret value"
+                            autoFocus
+                            className="flex-1 px-2 py-1.5 bg-nebula-surface border border-nebula-border rounded text-sm text-nebula-text font-mono focus:outline-none focus:border-nebula-accent/50"
+                          />
+                          <button
+                            onClick={async () => {
+                              if (!editASecretValue.trim()) return;
+                              setEditASecretSaving(true);
+                              try {
+                                await createAgentSecret(agent.id, s.key, editASecretValue.trim());
+                                setEditingASecretId(null); setEditASecretValue('');
+                                refreshSecrets();
+                              } catch {} finally { setEditASecretSaving(false); }
+                            }}
+                            disabled={editASecretSaving || !editASecretValue.trim()}
+                            className="px-3 py-1.5 text-xs bg-nebula-accent/20 text-nebula-accent rounded hover:bg-nebula-accent/30 disabled:opacity-30 font-medium"
+                          >
+                            {editASecretSaving ? '...' : 'Save'}
+                          </button>
+                          <button
+                            onClick={() => { setEditingASecretId(null); setEditASecretValue(''); }}
+                            className="px-2 py-1.5 text-xs text-nebula-muted hover:text-nebula-text"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

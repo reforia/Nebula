@@ -12,6 +12,9 @@ export default function SecretsList({ load, create, remove }: Props) {
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
   const loadRef = useRef(load);
   loadRef.current = load;
 
@@ -41,16 +44,62 @@ export default function SecretsList({ load, create, remove }: Props) {
     refresh();
   };
 
+  const handleEdit = async (key: string) => {
+    if (!editValue.trim()) return;
+    setEditSaving(true);
+    try {
+      await create(key, editValue.trim());
+      setEditingId(null);
+      setEditValue('');
+      refresh();
+    } catch (err) {
+      console.error('Failed to update secret:', err);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   return (
     <div>
       <div className="space-y-1.5 mb-3">
         {secrets.map(s => (
-          <div key={s.id} className="flex items-center gap-2 py-1.5 border-b border-nebula-border/50 last:border-0">
-            <span className="text-[12px] font-mono text-nebula-accent flex-1">{s.key}</span>
-            <span className="text-[10px] text-nebula-muted">***</span>
-            <button onClick={() => handleDelete(s.id)} className="text-nebula-muted hover:text-nebula-red text-[11px] transition-colors">
-              Delete
-            </button>
+          <div key={s.id} className="py-1.5 border-b border-nebula-border/50 last:border-0">
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] font-mono text-nebula-accent flex-1">{s.key}</span>
+              <span className="text-[10px] text-nebula-muted">***</span>
+              <button onClick={() => { setEditingId(s.id); setEditValue(''); }} className="text-nebula-muted hover:text-nebula-accent text-[11px] transition-colors">
+                Edit
+              </button>
+              <button onClick={() => handleDelete(s.id)} className="text-nebula-muted hover:text-nebula-red text-[11px] transition-colors">
+                Delete
+              </button>
+            </div>
+            {editingId === s.id && (
+              <div className="flex gap-2 mt-1.5">
+                <input
+                  type="password"
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleEdit(s.key)}
+                  placeholder="New secret value"
+                  autoFocus
+                  className="flex-1 px-2 py-1 bg-nebula-bg border border-nebula-border rounded text-[11px] text-nebula-text"
+                />
+                <button
+                  onClick={() => handleEdit(s.key)}
+                  disabled={editSaving || !editValue.trim()}
+                  className="px-2 py-1 text-[11px] bg-nebula-accent/20 text-nebula-accent rounded hover:bg-nebula-accent/30 disabled:opacity-30 transition-colors"
+                >
+                  {editSaving ? '...' : 'Save'}
+                </button>
+                <button
+                  onClick={() => { setEditingId(null); setEditValue(''); }}
+                  className="px-2 py-1 text-[11px] text-nebula-muted hover:text-nebula-text transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         ))}
         {secrets.length === 0 && <p className="text-[11px] text-nebula-muted">No secrets configured</p>}
