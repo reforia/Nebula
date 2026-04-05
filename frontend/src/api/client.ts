@@ -163,6 +163,7 @@ export interface Agent {
   notify_email: number;
   sort_order: number;
   timeout_ms: number | null;
+  recovery_token_budget: number | null;
   session_initialized: number;
   nas_paths: string;
   initialized: number;
