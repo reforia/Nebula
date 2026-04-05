@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 
 export interface WSMessage {
-  type: 'new_message' | 'agent_typing' | 'unread_update' | 'agent_error' | 'task_fired' | 'remote_agent_status';
+  type: 'new_message' | 'agent_typing' | 'unread_update' | 'agent_error' | 'task_fired' | 'remote_agent_status' | 'runtime_auth_error';
   agent_id?: string;
   conversation_id?: string;
   message?: any;

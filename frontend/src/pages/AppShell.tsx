@@ -26,6 +26,7 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const { connected, subscribe, send } = useWebSocket();
   const { agents, loading: agentsLoading, refresh: refreshAgents, updateUnreadCounts, updateLastMessage } = useAgents();
@@ -164,6 +165,9 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
         case 'remote_agent_status':
           refreshAgents();
           break;
+        case 'runtime_auth_error':
+          setAuthError((msg as any).message || 'CLI runtime auth expired');
+          break;
       }
     });
   }, [subscribe, selectedAgentId, selectedConversationId, addMessage, updateUnreadCounts, updateProjectUnreadCounts, updateLastMessage, send]);
@@ -243,6 +247,12 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
       />
 
       <main className="flex-1 flex flex-col min-w-0">
+        {authError && (
+          <div className="bg-red-900/80 border-b border-red-700 px-4 py-2 flex items-center justify-between text-sm">
+            <span className="text-red-200">{authError}</span>
+            <button onClick={() => setAuthError(null)} className="text-red-400 hover:text-red-200 ml-4 shrink-0">&times;</button>
+          </div>
+        )}
         {showCalendar ? (
           <TaskCalendar onClose={() => setShowCalendar(false)} />
         ) : selectedProjectId ? (

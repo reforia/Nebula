@@ -470,6 +470,11 @@ router.post('/:id/messages', async (req, res) => {
         const msg = getOne('SELECT * FROM messages WHERE id = ?', [msgId]);
         broadcastToOrg(orgId, { type: 'new_message', agent_id: agent.id, message: msg });
         broadcastToOrg(orgId, { type: 'agent_error', agent_id: agent.id, error: err.message });
+        // Surface auth errors as a dedicated event so the UI can show a persistent banner
+        if (/auth expired/i.test(err.message)) {
+          const runtime = err.message.match(/^(\S+\s+\S+)/)?.[0] || 'CLI runtime';
+          broadcastToOrg(orgId, { type: 'runtime_auth_error', runtime, message: err.message });
+        }
         broadcastUnreadCounts(orgId);
       });
   };
