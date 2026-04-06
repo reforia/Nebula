@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import path from 'path';
 import fs from 'fs';
-import { getAll, getOne, run, orgPath } from '../db.js';
+import { getAll, getOne, run, orgPath, getOrgSetting } from '../db.js';
 import { generateId } from '../utils/uuid.js';
 import executor from '../services/executor.js';
 import { broadcastToOrg, broadcastUnreadCounts, hasActiveClients } from '../services/websocket.js';
@@ -11,21 +11,38 @@ import { enrichReplyTo } from '../services/message-service.js';
 
 const router = Router();
 
-/** Build recent conversation context string for mentioned agents */
-function buildConversationContext(conversationId) {
+/**
+ * Build recent conversation context string for mentioned agents.
+ * @param {string} conversationId
+ * @param {object} [opts] - { maxMessages, maxCharsPerMessage }
+ */
+function buildConversationContext(conversationId, opts = {}) {
   if (!conversationId) return '';
+  const maxMessages = opts.maxMessages || 10;
+  const maxChars = opts.maxCharsPerMessage || 0; // 0 = no truncation
   const recent = getAll(
     `SELECT role, content, agent_id FROM messages
      WHERE conversation_id = ? AND message_type IN ('chat', 'agent')
-     ORDER BY created_at DESC LIMIT 10`,
-    [conversationId]
+     ORDER BY created_at DESC LIMIT ?`,
+    [conversationId, maxMessages]
   ).reverse();
   if (recent.length === 0) return '';
   const lines = recent.map(m => {
     const author = m.role === 'user' ? 'User' : (getOne('SELECT name FROM agents WHERE id = ?', [m.agent_id])?.name || 'Agent');
-    return `[${author}]: ${m.content.slice(0, 500)}`;
+    const content = maxChars > 0 ? m.content.slice(0, maxChars) : m.content;
+    return `[${author}]: ${content}`;
   });
   return `\n\n--- Recent conversation context ---\n${lines.join('\n')}\n--- End context ---\n`;
+}
+
+/** Resolve mention context settings: mentioned agent override > org setting > defaults */
+function resolveMentionContext(mentionedAgent, orgId) {
+  return {
+    maxMessages: mentionedAgent.mention_context_messages
+      || parseInt(getOrgSetting(orgId, 'mention_context_messages')) || 10,
+    maxCharsPerMessage: mentionedAgent.mention_context_chars
+      || parseInt(getOrgSetting(orgId, 'mention_context_chars')) || 0,
+  };
 }
 
 /**
@@ -130,18 +147,16 @@ function processAgentMentions(text, sourceAgentId, conversationId, orgId, notify
   const sourceAgent = getOne('SELECT name, emoji FROM agents WHERE id = ?', [sourceAgentId]);
   const uniqueMentions = [...new Set(mentions)];
 
-  // Build conversation context for mentioned agents so they understand what's being discussed
-  let conversationContext = '';
-  if (conversationId && uniqueMentions.length > 0) {
-    conversationContext = buildConversationContext(conversationId);
-  }
-
   for (const mentionedName of uniqueMentions) {
     const mentioned = getOne(
       'SELECT * FROM agents WHERE name = ? AND org_id = ? AND id != ? AND enabled = 1',
       [mentionedName, orgId, sourceAgentId]
     );
     if (!mentioned) continue;
+
+    // Build conversation context per mentioned agent (settings may differ per agent)
+    const ctxOpts = resolveMentionContext(mentioned, orgId);
+    const conversationContext = conversationId ? buildConversationContext(conversationId, ctxOpts) : '';
 
     const prompt = sourceAgent
       ? `[You were pulled into a conversation by ${sourceAgent.emoji} ${sourceAgent.name}]${conversationContext}\n\nLatest message:\n${text}`
@@ -482,7 +497,8 @@ router.post('/:id/messages', async (req, res) => {
   if (mentionedAgents.length > 0) {
     // Execute mentioned agents first, collect responses, then run primary agent
     const mentionPromises = mentionedAgents.map(mentioned => {
-      const convContext = buildConversationContext(displayConversationId);
+      const ctxOpts = resolveMentionContext(mentioned, orgId);
+      const convContext = buildConversationContext(displayConversationId, ctxOpts);
 
       const mentionPrompt = `[You were pulled into a conversation by ${agent.emoji} ${agent.name}]${convContext}\n\nLatest message:\n${rawContent}`;
 
@@ -512,7 +528,7 @@ router.post('/:id/messages', async (req, res) => {
           broadcastToOrg(orgId, { type: 'new_message', agent_id: mentioned.id, message: msg, conversation_owner: convOwner?.agent_id });
           broadcastUnreadCounts(orgId);
 
-          return `[${mentioned.emoji} ${mentioned.name}]: ${safeText.slice(0, 2000)}`;
+          return `[${mentioned.emoji} ${mentioned.name}]: ${safeText}`;
         })
         .catch((err) => {
           const msgId = generateId();

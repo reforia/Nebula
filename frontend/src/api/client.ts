@@ -164,6 +164,8 @@ export interface Agent {
   sort_order: number;
   timeout_ms: number | null;
   recovery_token_budget: number | null;
+  mention_context_messages: number | null;
+  mention_context_chars: number | null;
   session_initialized: number;
   nas_paths: string;
   initialized: number;

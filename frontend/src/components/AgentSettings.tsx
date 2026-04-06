@@ -32,6 +32,10 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
   const [orgDefaultTimeoutMin, setOrgDefaultTimeoutMin] = useState(10);
   const [recoveryBudget, setRecoveryBudget] = useState<number | ''>(agent.recovery_token_budget || '');
   const [orgDefaultRecoveryBudget, setOrgDefaultRecoveryBudget] = useState(25000);
+  const [mentionMessages, setMentionMessages] = useState<number | ''>(agent.mention_context_messages || '');
+  const [mentionChars, setMentionChars] = useState<number | ''>(agent.mention_context_chars || '');
+  const [orgDefaultMentionMessages, setOrgDefaultMentionMessages] = useState(10);
+  const [orgDefaultMentionChars, setOrgDefaultMentionChars] = useState(0);
   const [executionMode, setExecutionMode] = useState<'local' | 'remote'>(agent.execution_mode || 'local');
   const [remoteToken, setRemoteToken] = useState<string | null>(null);
   const [hasRemoteToken, setHasRemoteToken] = useState(false);
@@ -63,6 +67,8 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
     getSettings().then(s => {
       setOrgDefaultTimeoutMin(Math.round(parseInt(s.default_timeout_ms || '600000') / 60000));
       setOrgDefaultRecoveryBudget(parseInt(s.recovery_token_budget || '25000') || 25000);
+      setOrgDefaultMentionMessages(parseInt(s.mention_context_messages || '10') || 10);
+      setOrgDefaultMentionChars(parseInt(s.mention_context_chars || '0') || 0);
     }).catch(() => {});
     refreshSecrets();
   }, [agent.id]);
@@ -78,6 +84,8 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
         notify_email: notifyEmail as any,
         timeout_ms: timeoutMin ? timeoutMin * 60000 : null,
         recovery_token_budget: recoveryBudget || null,
+        mention_context_messages: mentionMessages || null,
+        mention_context_chars: mentionChars || null,
         execution_mode: executionMode,
         nas_paths: nasPaths as any,
         claude_md: claudeMd,
@@ -199,6 +207,21 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
                   className="w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded-lg text-sm text-nebula-text focus:outline-none focus:border-nebula-accent/50" />
                 <p className="text-[10px] text-nebula-muted mt-1">Max tokens of conversation history to recover on session reset (~4 chars/token). Leave empty for org default.</p>
               </div>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="text-xs text-nebula-muted block mb-1">@Mention Context Messages</label>
+                  <input type="number" value={mentionMessages} onChange={e => { const v = e.target.value; setMentionMessages(v === '' ? '' : (parseInt(v) || 10)); }} min={1} max={50}
+                    placeholder={`Org default (${orgDefaultMentionMessages})`}
+                    className="w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded-lg text-sm text-nebula-text focus:outline-none focus:border-nebula-accent/50" />
+                </div>
+                <div className="flex-1">
+                  <label className="text-xs text-nebula-muted block mb-1">Max Chars per Message</label>
+                  <input type="number" value={mentionChars} onChange={e => { const v = e.target.value; setMentionChars(v === '' ? '' : (parseInt(v) || 0)); }} min={0} max={10000} step={500}
+                    placeholder={`Org default (${orgDefaultMentionChars || 'no limit'})`}
+                    className="w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded-lg text-sm text-nebula-text focus:outline-none focus:border-nebula-accent/50" />
+                </div>
+              </div>
+              <p className="text-[10px] text-nebula-muted -mt-1">Messages passed as context when this agent is @mentioned. Max chars = 0 means no truncation. Leave empty for org default.</p>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} className="accent-nebula-accent" />

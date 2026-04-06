@@ -22,6 +22,7 @@ router.get('/settings', (req, res) => {
     'task_stagger_ms',
     'default_runtime',
     'recovery_token_budget',
+    'mention_context_messages', 'mention_context_chars',
     'cleanup_enabled', 'cleanup_cron', 'cleanup_sessions', 'cleanup_worktrees', 'cleanup_dreaming',
   ];
 
@@ -52,6 +53,7 @@ router.put('/settings', (req, res) => {
     'task_stagger_ms',
     'default_runtime',
     'recovery_token_budget',
+    'mention_context_messages', 'mention_context_chars',
     'cleanup_enabled', 'cleanup_cron', 'cleanup_sessions', 'cleanup_worktrees', 'cleanup_dreaming',
   ];
 

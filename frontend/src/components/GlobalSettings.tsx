@@ -163,6 +163,31 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                 <p className="text-[10px] text-nebula-muted mt-1">Max tokens of conversation history to recover when an agent session resets (~4 chars/token). Each agent can override this.</p>
               </div>
 
+              {/* Mention context */}
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="text-xs text-nebula-muted block mb-1">@Mention Context Messages</label>
+                  <input
+                    type="number"
+                    value={parseInt(settings.mention_context_messages || '10') || 10}
+                    onChange={e => updateSetting('mention_context_messages', String(parseInt(e.target.value) || 10))}
+                    min={1} max={50}
+                    className="w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded text-sm text-nebula-text focus:outline-none focus:border-nebula-accent"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="text-xs text-nebula-muted block mb-1">Max Chars per Message</label>
+                  <input
+                    type="number"
+                    value={parseInt(settings.mention_context_chars || '0') || 0}
+                    onChange={e => updateSetting('mention_context_chars', String(parseInt(e.target.value) || 0))}
+                    min={0} max={10000} step={500}
+                    className="w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded text-sm text-nebula-text focus:outline-none focus:border-nebula-accent"
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-nebula-muted mt-1">How many recent messages are passed as context when an agent is @mentioned. Max chars = 0 means no truncation. Each agent can override.</p>
+
               {/* Task stagger */}
               <div>
                 <label className="text-xs text-nebula-muted block mb-1">Task Stagger Delay (minutes)</label>
