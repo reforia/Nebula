@@ -46,7 +46,7 @@ describe('Tasks API', () => {
       assert.equal(res.body.cron_expression, '0 9 * * *');
       assert.equal(res.body.enabled, 1);
       assert.equal(res.body.max_turns, 50);
-      assert.equal(res.body.timeout_ms, 600000);
+      assert.equal(res.body.timeout_ms, null);
       assert.equal(res.body.agent_id, agentId);
       assert.ok(res.body.id);
     });

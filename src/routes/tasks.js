@@ -48,7 +48,7 @@ agentTasksRouter.post('/:id/tasks', (req, res) => {
       webhookSecret,
       enabled !== undefined ? (enabled ? 1 : 0) : 1,
       max_turns || 50,
-      timeout_ms || 600000,
+      timeout_ms || null,
     ]
   );
 
