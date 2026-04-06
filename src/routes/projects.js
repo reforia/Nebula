@@ -972,7 +972,7 @@ router.post('/:id/messages', async (req, res) => {
           if (targetAgentId !== project.coordinator_agent_id) return;
 
           const followUpContext = responses
-            .map(r => `[${r.agentEmoji} ${r.agentName}]: ${r.text.slice(0, 3000)}`)
+            .map(r => `[${r.agentEmoji} ${r.agentName}]: ${r.text}`)
             .join('\n\n');
 
           const followUpPrompt = `[The agents you dispatched have completed their work. Review their responses and provide a summary with any follow-up actions needed.]\n\n${followUpContext}`;
