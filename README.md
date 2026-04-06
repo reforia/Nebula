@@ -1,6 +1,10 @@
 # Nebula
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19437047.svg)](https://doi.org/10.5281/zenodo.19437047)
+
 Self-hosted AI agent platform. Create, manage, and orchestrate multiple AI agents backed by persistent CLI sessions with cross-agent communication, custom skills, and scheduled tasks.
+
+> **Paper:** [Nebula: Decoupling Agent Identity from Runtime in Multi-Agent LLM Systems](https://doi.org/10.5281/zenodo.19437047) (April 2026)
 <img width="1302" height="808" alt="image" src="https://github.com/user-attachments/assets/3e266c0b-2f10-4b66-8651-f50fb99fdfe4" />
 <img width="1084" height="537" alt="image" src="https://github.com/user-attachments/assets/c015bf8e-4ded-46a9-baf1-cc240c0d10ff" />
 
