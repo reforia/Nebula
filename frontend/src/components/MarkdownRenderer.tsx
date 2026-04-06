@@ -63,6 +63,7 @@ export default function MarkdownRenderer({ content, highlight }: Props) {
   // Custom components to inject @mention styling and search highlighting into text nodes
   const components = useMemo(() => ({
     // Override text rendering in paragraphs, list items, etc.
+    a: ({ children, href, ...props }: any) => <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>,
     p: ({ children, ...props }: any) => <p {...props}>{processChildren(children, highlight)}</p>,
     li: ({ children, ...props }: any) => <li {...props}>{processChildren(children, highlight)}</li>,
     td: ({ children, ...props }: any) => <td {...props}>{processChildren(children, highlight)}</td>,
