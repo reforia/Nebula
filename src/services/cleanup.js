@@ -33,11 +33,11 @@ function getCleanupSettings(orgId) {
   const oid = orgId || getOne('SELECT id FROM organizations LIMIT 1')?.id;
   if (!oid) return { enabled: true, cron: DEFAULT_CRON, sessions: true, worktrees: true, dreaming: true };
   return {
-    enabled: (getOrgSetting(oid, 'cleanup_enabled') ?? '1') === '1',
+    enabled: (getOrgSetting(oid, 'cleanup_enabled') || '1') === '1',
     cron: getOrgSetting(oid, 'cleanup_cron') || DEFAULT_CRON,
-    sessions: (getOrgSetting(oid, 'cleanup_sessions') ?? '1') === '1',
-    worktrees: (getOrgSetting(oid, 'cleanup_worktrees') ?? '1') === '1',
-    dreaming: (getOrgSetting(oid, 'cleanup_dreaming') ?? '1') === '1',
+    sessions: (getOrgSetting(oid, 'cleanup_sessions') || '1') === '1',
+    worktrees: (getOrgSetting(oid, 'cleanup_worktrees') || '1') === '1',
+    dreaming: (getOrgSetting(oid, 'cleanup_dreaming') || '1') === '1',
   };
 }
 
