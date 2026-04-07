@@ -80,11 +80,17 @@ export class ClaudeCLIBackend extends ExecutionBackend {
             env: server.config.env || {},
           };
         } else {
+          // CC CLI's Bun runtime cannot connect to HTTP/SSE MCP servers directly.
+          // Bridge through a stdio proxy that forwards JSON-RPC over HTTP.
+          const bridgePath = path.resolve(import.meta.dirname, '../../scripts/mcp-http-bridge.js');
+          const bridgeArgs = [bridgePath, server.config.url];
+          if (server.config.headers && Object.keys(server.config.headers).length > 0) {
+            bridgeArgs.push(JSON.stringify(server.config.headers));
+          }
           mcpConfig.mcpServers[server.name] = {
-            type: server.transport === 'sse' ? 'sse' : 'http',
-            url: server.config.url,
-            ...(server.config.headers && Object.keys(server.config.headers).length > 0
-              ? { headers: server.config.headers } : {}),
+            type: 'stdio',
+            command: 'node',
+            args: bridgeArgs,
           };
         }
       }
