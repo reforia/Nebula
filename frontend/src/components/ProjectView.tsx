@@ -391,7 +391,7 @@ function OverviewTab({ project, milestones, dashboard, readiness, agentName, sta
                 <span className="text-base">{a.agent_emoji}</span>
                 <span className="text-[12px] text-nebula-text flex-1">{a.agent_name}</span>
                 <span className="text-[11px] text-nebula-muted">{a.message_count} messages</span>
-                <span className="text-[10px] text-nebula-muted">{new Date(a.last_active).toLocaleDateString()}</span>
+                <span className="text-[10px] text-nebula-muted">{new Date(a.last_active + 'Z').toLocaleDateString()}</span>
               </div>
             ))}
           </div>

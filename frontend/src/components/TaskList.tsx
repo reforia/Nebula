@@ -83,7 +83,7 @@ export default function TaskList({ agentId, projectId }: Props) {
               <p className="text-xs text-nebula-muted truncate">{task.prompt}</p>
               <div className="flex items-center gap-3 mt-2 text-xs text-nebula-muted">
                 <span className={task.enabled ? 'text-green-400' : 'text-zinc-500'}>{task.enabled ? 'Active' : 'Paused'}</span>
-                {task.last_run_at && <span>Last: {new Date(task.last_run_at).toLocaleString()}</span>}
+                {task.last_run_at && <span>Last: {new Date(task.last_run_at + 'Z').toLocaleString()}</span>}
                 {task.last_status && <span className={task.last_status === 'success' ? 'text-green-400' : 'text-red-400'}>{task.last_status}</span>}
               </div>
             </div>

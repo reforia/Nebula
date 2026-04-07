@@ -253,7 +253,7 @@ export default function Sidebar({ agents, projects, selectedAgentId, selectedPro
                       {r.project_id ? r.project_name : r.agent_name}
                     </span>
                     <span className="text-[10px] text-nebula-muted ml-auto flex-shrink-0">
-                      {new Date(r.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                      {new Date(r.created_at + 'Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                     </span>
                   </div>
                   <p className="text-[11px] text-nebula-muted line-clamp-2 break-words">{r.snippet}</p>

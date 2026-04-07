@@ -30,7 +30,7 @@ export default function MessageBubble({ message, ownerAgentId, agents, highlight
   const respondingAgent = !isUser && message.agent_id && agents ? agents.find(a => a.id === message.agent_id) : null;
   const isGuestAgent = respondingAgent && ownerAgentId && message.agent_id !== ownerAgentId;
 
-  const time = new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const time = new Date(message.created_at + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   let meta: { duration_ms?: number; total_cost_usd?: number; from_agent_name?: string; from_agent_emoji?: string; images?: { id: string; filename: string }[]; tool_history?: { name: string; input: Record<string, any>; output?: string; error?: boolean }[] } | null = null;
   if (message.metadata) {

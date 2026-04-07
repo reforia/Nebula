@@ -312,7 +312,7 @@ export default function TaskCalendar({ onClose }: { onClose: () => void }) {
                       </span>
                     )}
                     {dt.task.last_run_at && (
-                      <span>Last: {new Date(dt.task.last_run_at).toLocaleDateString()}</span>
+                      <span>Last: {new Date(dt.task.last_run_at + 'Z').toLocaleDateString()}</span>
                     )}
                   </div>
                 </div>

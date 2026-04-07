@@ -291,7 +291,7 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                               <div className="flex items-center justify-between text-[11px]">
                                 <span className="text-nebula-text">{e.agent_emoji} {e.agent_name}</span>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-nebula-muted">{new Date(e.created_at).toLocaleString()}</span>
+                                  <span className="text-nebula-muted">{new Date(e.created_at + 'Z').toLocaleString()}</span>
                                   <button
                                     onClick={async () => {
                                       await dismissError(e.id);
@@ -756,7 +756,7 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                         <div className="flex-1 min-w-0">
                           <code className="text-sm text-nebula-accent font-mono">{`{{${s.key}}}`}</code>
                           <span className="text-[11px] text-nebula-muted ml-3">
-                            {s.updated_at !== s.created_at ? 'updated' : 'added'} {new Date(s.updated_at).toLocaleDateString()}
+                            {s.updated_at !== s.created_at ? 'updated' : 'added'} {new Date(s.updated_at + 'Z').toLocaleDateString()}
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
