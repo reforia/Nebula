@@ -74,12 +74,14 @@ export class ClaudeCLIBackend extends ExecutionBackend {
       for (const server of options.mcpServers) {
         if (server.transport === 'stdio') {
           mcpConfig.mcpServers[server.name] = {
+            type: 'stdio',
             command: server.config.command,
             args: server.config.args || [],
             env: server.config.env || {},
           };
         } else {
           mcpConfig.mcpServers[server.name] = {
+            type: server.transport === 'sse' ? 'sse' : 'http',
             url: server.config.url,
             ...(server.config.headers && Object.keys(server.config.headers).length > 0
               ? { headers: server.config.headers } : {}),
