@@ -131,8 +131,8 @@ router.put('/:id', (req, res) => {
   }
 
   const { updates, params } = buildUpdate(req.body,
-    ['name', 'role', 'emoji', 'allowed_tools', 'model', 'backend', 'security_tier', 'enabled', 'notify_email', 'sort_order', 'nas_paths', 'execution_mode', 'timeout_ms', 'recovery_token_budget', 'mention_context_messages', 'mention_context_chars'],
-    { enabled: 'boolean', notify_email: 'boolean', nas_paths: v => JSON.stringify(Array.isArray(v) ? v : []) }
+    ['name', 'role', 'emoji', 'allowed_tools', 'model', 'backend', 'security_tier', 'enabled', 'notify_email', 'sort_order', 'nas_paths', 'execution_mode', 'timeout_ms', 'recovery_token_budget', 'mention_context_messages', 'mention_context_chars', 'mcp_auto_reset'],
+    { enabled: 'boolean', notify_email: 'boolean', mcp_auto_reset: 'boolean', nas_paths: v => JSON.stringify(Array.isArray(v) ? v : []) }
   );
 
   // Reset session when switching execution mode

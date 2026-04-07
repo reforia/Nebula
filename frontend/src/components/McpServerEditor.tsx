@@ -11,6 +11,9 @@ interface Props {
   scope: 'org' | 'agent';
   agentId?: string;
   onMutate?: () => void;
+  /** Agent's mcp_auto_reset flag — only for scope='agent' */
+  mcpAutoReset?: boolean;
+  onAutoResetChange?: (value: boolean) => void;
 }
 
 interface StdioConfig { command: string; args?: string[]; env?: Record<string, string>; }
@@ -21,7 +24,8 @@ function parseConfig(configStr: string): ServerConfig {
   try { return JSON.parse(configStr); } catch { return { command: '' }; }
 }
 
-export default function McpServerEditor({ scope, agentId, onMutate }: Props) {
+export default function McpServerEditor({ scope, agentId, onMutate, mcpAutoReset, onAutoResetChange }: Props) {
+
   return (
     <CrudList<McpServer>
       onMutate={onMutate}
@@ -60,11 +64,27 @@ export default function McpServerEditor({ scope, agentId, onMutate }: Props) {
         <McpEditorFields server={server} items={items} setItems={setItems} saving={saving === server.id} onSave={onSave} />
       )}
       footer={
-        <div className="bg-nebula-surface-2 border border-nebula-border rounded-lg p-3 mt-2">
+        <div className="bg-nebula-surface-2 border border-nebula-border rounded-lg p-3 mt-2 space-y-2">
           <p className="text-[11px] text-nebula-muted">
             MCP servers extend agent capabilities with external tools and data sources.
             Use <code className="text-nebula-accent">{'{{SECRET_NAME}}'}</code> in env vars and headers to reference vault secrets.
           </p>
+          <p className="text-[11px] text-nebula-muted">
+            MCP servers are loaded when a session starts. Changes to MCP config require a session reset to take effect.
+          </p>
+          {onAutoResetChange && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={mcpAutoReset ?? false}
+                onChange={e => onAutoResetChange(e.target.checked)}
+                className="accent-nebula-accent"
+              />
+              <span className="text-[11px] text-nebula-muted">
+                Auto-reset all sessions when MCP servers change (including org-wide changes)
+              </span>
+            </label>
+          )}
         </div>
       }
     />

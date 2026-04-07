@@ -1,0 +1,1 @@
+ALTER TABLE agents ADD COLUMN mcp_auto_reset INTEGER NOT NULL DEFAULT 0;

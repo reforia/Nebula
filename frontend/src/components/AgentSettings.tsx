@@ -325,7 +325,13 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
 
           {tab === 'skills' && <SkillEditor scope="agent" agentId={agent.id} />}
 
-          {tab === 'mcp' && <McpServerEditor scope="agent" agentId={agent.id} />}
+          {tab === 'mcp' && <McpServerEditor scope="agent" agentId={agent.id}
+                mcpAutoReset={!!agent.mcp_auto_reset}
+                onAutoResetChange={async (value) => {
+                  await updateAgent(agent.id, { mcp_auto_reset: value ? 1 : 0 });
+                  onUpdated();
+                }}
+              />}
 
           {tab === 'secrets' && (
             <div className="space-y-4">

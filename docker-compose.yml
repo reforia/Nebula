@@ -13,6 +13,8 @@ services:
       - ${RUNTIMES_DIR:-./runtimes}:/data/runtimes:ro
       # Place CLI binaries (claude, codex, gemini, etc.) in runtimes/bin/
       # They will be auto-detected on startup and via the re-detect button in Settings > Runtimes
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - TZ=${TZ:-UTC}
       - HTTP_PROXY=${HTTP_PROXY:-}

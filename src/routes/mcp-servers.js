@@ -5,6 +5,59 @@ import { checkSecretsForEnable } from '../services/secret-refs.js';
 
 const VALID_TRANSPORTS = ['stdio', 'http', 'sse'];
 
+/**
+ * Structural validation of MCP server config for a given transport.
+ * Returns { valid: true } or { valid: false, reason: string }.
+ */
+function validateMcpConfig(transport, config) {
+  let parsed = config;
+  if (typeof config === 'string') {
+    try { parsed = JSON.parse(config); } catch { return { valid: false, reason: 'Config is not valid JSON' }; }
+  }
+  if (!parsed || typeof parsed !== 'object') return { valid: false, reason: 'Config must be an object' };
+
+  if (transport === 'stdio') {
+    if (!parsed.command || typeof parsed.command !== 'string') {
+      return { valid: false, reason: 'Stdio transport requires a "command" string' };
+    }
+  } else {
+    if (!parsed.url || typeof parsed.url !== 'string') {
+      return { valid: false, reason: `${transport.toUpperCase()} transport requires a "url" string` };
+    }
+  }
+  return { valid: true };
+}
+
+/**
+ * Reset CLI sessions for agents affected by an MCP config change.
+ * Per-agent: checks agent.mcp_auto_reset flag.
+ * Org-wide change: resets only agents that have mcp_auto_reset = 1.
+ * Agent-specific change: resets only if that agent has mcp_auto_reset = 1.
+ */
+function resetSessionsForMcpChange(orgId, agentId = null) {
+  const convs = agentId
+    ? getAll(
+      `SELECT c.id FROM conversations c
+       JOIN agents a ON c.agent_id = a.id
+       WHERE c.agent_id = ? AND a.mcp_auto_reset = 1 AND c.session_initialized = 1`,
+      [agentId]
+    )
+    : getAll(
+      `SELECT c.id FROM conversations c
+       JOIN agents a ON c.agent_id = a.id
+       WHERE a.org_id = ? AND a.mcp_auto_reset = 1 AND c.session_initialized = 1`,
+      [orgId]
+    );
+  for (const conv of convs) {
+    const newSessionId = generateId();
+    run("UPDATE conversations SET session_id = ?, session_initialized = 0, updated_at = datetime('now') WHERE id = ?",
+      [newSessionId, conv.id]);
+  }
+  if (convs.length > 0) {
+    console.log(`[mcp] Auto-reset ${convs.length} session(s) after MCP config change (org=${orgId}, agent=${agentId || 'all'})`);
+  }
+}
+
 // Org-wide MCP servers: mounted at /api/mcp-servers
 const mcpServersRouter = Router();
 
@@ -43,6 +96,11 @@ mcpServersRouter.post('/', (req, res) => {
   );
 
   const server = getOne('SELECT * FROM mcp_servers WHERE id = ?', [id]);
+  // Only auto-reset if the new server is enabled and structurally valid
+  if (server.enabled) {
+    const { valid } = validateMcpConfig(server.transport, server.config);
+    if (valid) resetSessionsForMcpChange(req.orgId);
+  }
   res.status(201).json(server);
 });
 
@@ -89,6 +147,11 @@ mcpServersRouter.put('/:id', (req, res) => {
   }
 
   const updated = getOne('SELECT * FROM mcp_servers WHERE id = ?', [req.params.id]);
+  // Auto-reset if the updated server is enabled and structurally valid
+  if (updated.enabled) {
+    const { valid } = validateMcpConfig(updated.transport, updated.config);
+    if (valid) resetSessionsForMcpChange(req.orgId);
+  }
   res.json(updated);
 });
 
@@ -101,6 +164,8 @@ mcpServersRouter.delete('/:id', (req, res) => {
   if (!server) return res.status(404).json({ error: 'MCP server not found' });
 
   run('DELETE FROM mcp_servers WHERE id = ?', [req.params.id]);
+  // Deleting an enabled server changes what agents see — reset
+  if (server.enabled) resetSessionsForMcpChange(req.orgId);
   res.json({ ok: true });
 });
 
@@ -150,6 +215,10 @@ agentMcpServersRouter.post('/:id/mcp-servers', (req, res) => {
   );
 
   const server = getOne('SELECT * FROM mcp_servers WHERE id = ?', [id]);
+  if (server.enabled) {
+    const { valid } = validateMcpConfig(server.transport, server.config);
+    if (valid) resetSessionsForMcpChange(req.orgId, req.params.id);
+  }
   res.status(201).json(server);
 });
 
@@ -196,6 +265,10 @@ agentMcpServersRouter.put('/:id/mcp-servers/:serverId', (req, res) => {
   }
 
   const updated = getOne('SELECT * FROM mcp_servers WHERE id = ?', [req.params.serverId]);
+  if (updated.enabled) {
+    const { valid } = validateMcpConfig(updated.transport, updated.config);
+    if (valid) resetSessionsForMcpChange(req.orgId, req.params.id);
+  }
   res.json(updated);
 });
 
@@ -208,6 +281,7 @@ agentMcpServersRouter.delete('/:id/mcp-servers/:serverId', (req, res) => {
   if (!server) return res.status(404).json({ error: 'MCP server not found' });
 
   run('DELETE FROM mcp_servers WHERE id = ?', [req.params.serverId]);
+  if (server.enabled) resetSessionsForMcpChange(req.orgId, req.params.id);
   res.json({ ok: true });
 });
 

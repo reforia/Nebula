@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { createApp, resetDb, request, registerTestUser, createTestAgent, getOne, getAll } from './setup.js';
+import { createApp, resetDb, request, registerTestUser, createTestAgent, getOne, getAll, run } from './setup.js';
 
 describe('MCP Servers API', () => {
   let app, cookie, orgId, agentId;
@@ -235,6 +235,178 @@ describe('MCP Servers API', () => {
 
       const res = await request(app, 'GET', '/api/mcp-servers', { cookie: reg2.cookie });
       assert.equal(res.body.length, 0);
+    });
+  });
+
+  // --- Auto-reset sessions on MCP change ---
+
+  describe('mcp_auto_reset', () => {
+    /** Helper: initialize a conversation's session so we can detect resets */
+    function initSession(agentId) {
+      const conv = getOne('SELECT id FROM conversations WHERE agent_id = ? ORDER BY created_at DESC LIMIT 1', [agentId]);
+      run("UPDATE conversations SET session_initialized = 1 WHERE id = ?", [conv.id]);
+      return conv.id;
+    }
+
+    function isSessionInitialized(convId) {
+      return getOne('SELECT session_initialized FROM conversations WHERE id = ?', [convId]).session_initialized === 1;
+    }
+
+    it('agent mcp_auto_reset defaults to 0', async () => {
+      const agent = getOne('SELECT mcp_auto_reset FROM agents WHERE id = ?', [agentId]);
+      assert.equal(agent.mcp_auto_reset, 0);
+    });
+
+    it('can update mcp_auto_reset via PUT /api/agents/:id', async () => {
+      await request(app, 'PUT', `/api/agents/${agentId}`, {
+        cookie, body: { mcp_auto_reset: true },
+      });
+      const agent = getOne('SELECT mcp_auto_reset FROM agents WHERE id = ?', [agentId]);
+      assert.equal(agent.mcp_auto_reset, 1);
+    });
+
+    it('does NOT reset session when auto-reset is off (default)', async () => {
+      const convId = initSession(agentId);
+
+      await request(app, 'POST', `/api/agents/${agentId}/mcp-servers`, {
+        cookie,
+        body: { name: 'test', transport: 'http', config: JSON.stringify({ url: 'http://localhost/mcp' }) },
+      });
+
+      assert.equal(isSessionInitialized(convId), true, 'session should remain initialized');
+    });
+
+    it('resets session when auto-reset is on and agent MCP changes', async () => {
+      await request(app, 'PUT', `/api/agents/${agentId}`, {
+        cookie, body: { mcp_auto_reset: true },
+      });
+      const convId = initSession(agentId);
+
+      await request(app, 'POST', `/api/agents/${agentId}/mcp-servers`, {
+        cookie,
+        body: { name: 'test', transport: 'http', config: JSON.stringify({ url: 'http://localhost/mcp' }) },
+      });
+
+      assert.equal(isSessionInitialized(convId), false, 'session should be reset');
+    });
+
+    it('resets opted-in agent when org-wide MCP changes', async () => {
+      await request(app, 'PUT', `/api/agents/${agentId}`, {
+        cookie, body: { mcp_auto_reset: true },
+      });
+      const convId = initSession(agentId);
+
+      await request(app, 'POST', '/api/mcp-servers', {
+        cookie,
+        body: { name: 'org-server', transport: 'http', config: JSON.stringify({ url: 'http://example.com/mcp' }) },
+      });
+
+      assert.equal(isSessionInitialized(convId), false, 'opted-in agent session should be reset');
+    });
+
+    it('does NOT reset non-opted-in agent when org-wide MCP changes', async () => {
+      // agentId has auto-reset OFF (default)
+      const convId = initSession(agentId);
+
+      await request(app, 'POST', '/api/mcp-servers', {
+        cookie,
+        body: { name: 'org-server', transport: 'http', config: JSON.stringify({ url: 'http://example.com/mcp' }) },
+      });
+
+      assert.equal(isSessionInitialized(convId), true, 'non-opted-in agent session should stay');
+    });
+
+    it('does NOT reset when config is structurally invalid', async () => {
+      await request(app, 'PUT', `/api/agents/${agentId}`, {
+        cookie, body: { mcp_auto_reset: true },
+      });
+      const convId = initSession(agentId);
+
+      // Create with empty config (no command for stdio, no url for http)
+      await request(app, 'POST', `/api/agents/${agentId}/mcp-servers`, {
+        cookie,
+        body: { name: 'empty', transport: 'stdio' },
+      });
+
+      assert.equal(isSessionInitialized(convId), true, 'invalid config should not trigger reset');
+    });
+
+    it('does NOT reset when server is created disabled', async () => {
+      await request(app, 'PUT', `/api/agents/${agentId}`, {
+        cookie, body: { mcp_auto_reset: true },
+      });
+      const convId = initSession(agentId);
+
+      await request(app, 'POST', `/api/agents/${agentId}/mcp-servers`, {
+        cookie,
+        body: { name: 'disabled', transport: 'http', config: JSON.stringify({ url: 'http://localhost/mcp' }), enabled: false },
+      });
+
+      assert.equal(isSessionInitialized(convId), true, 'disabled server should not trigger reset');
+    });
+
+    it('resets on update when server is enabled and valid', async () => {
+      await request(app, 'PUT', `/api/agents/${agentId}`, {
+        cookie, body: { mcp_auto_reset: true },
+      });
+
+      // Create server while session is not yet initialized (no reset expected)
+      const created = await request(app, 'POST', `/api/agents/${agentId}/mcp-servers`, {
+        cookie,
+        body: { name: 'test', transport: 'http', config: JSON.stringify({ url: 'http://localhost/mcp' }) },
+      });
+
+      // Now initialize the session
+      const convId = initSession(agentId);
+
+      // Update the server
+      await request(app, 'PUT', `/api/agents/${agentId}/mcp-servers/${created.body.id}`, {
+        cookie,
+        body: { config: JSON.stringify({ url: 'http://localhost:9999/mcp' }) },
+      });
+
+      assert.equal(isSessionInitialized(convId), false, 'session should be reset after update');
+    });
+
+    it('resets on delete when server was enabled', async () => {
+      await request(app, 'PUT', `/api/agents/${agentId}`, {
+        cookie, body: { mcp_auto_reset: true },
+      });
+      const created = await request(app, 'POST', `/api/agents/${agentId}/mcp-servers`, {
+        cookie,
+        body: { name: 'test', transport: 'http', config: JSON.stringify({ url: 'http://localhost/mcp' }) },
+      });
+      const convId = initSession(agentId);
+
+      await request(app, 'DELETE', `/api/agents/${agentId}/mcp-servers/${created.body.id}`, { cookie });
+
+      assert.equal(isSessionInitialized(convId), false, 'session should be reset after delete');
+    });
+
+    it('resets all conversations for an agent, not just the latest', async () => {
+      await request(app, 'PUT', `/api/agents/${agentId}`, {
+        cookie, body: { mcp_auto_reset: true },
+      });
+
+      // Create a second conversation
+      await request(app, 'POST', `/api/agents/${agentId}/conversations`, {
+        cookie, body: { title: 'Second' },
+      });
+
+      // Initialize both
+      const convs = getAll('SELECT id FROM conversations WHERE agent_id = ?', [agentId]);
+      for (const c of convs) {
+        run("UPDATE conversations SET session_initialized = 1 WHERE id = ?", [c.id]);
+      }
+
+      await request(app, 'POST', `/api/agents/${agentId}/mcp-servers`, {
+        cookie,
+        body: { name: 'test', transport: 'http', config: JSON.stringify({ url: 'http://localhost/mcp' }) },
+      });
+
+      for (const c of convs) {
+        assert.equal(isSessionInitialized(c.id), false, `conversation ${c.id} should be reset`);
+      }
     });
   });
 });

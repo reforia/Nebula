@@ -45,16 +45,16 @@ class AgentExecutor extends EventEmitter {
       [conversationId]
     );
 
-    // Take recent messages until we hit the budget, skip error messages
+    // Take recent messages until we hit the budget
+    // Error messages are included for context but don't count toward the budget
     const selected = [];
     let charCount = 0;
+    const isError = (m) => m.role === 'assistant' && m.content.startsWith('Error:');
     for (const msg of messages) {
       if (!msg.content) continue;
-      // Skip raw error dumps — they're noise for context recovery
-      if (msg.role === 'assistant' && msg.content.startsWith('Error:') && /exit code/i.test(msg.content)) continue;
-      if (charCount + msg.content.length > charBudget) break;
+      if (!isError(msg) && charCount + msg.content.length > charBudget) break;
       selected.unshift(msg); // restore chronological order
-      charCount += msg.content.length;
+      if (!isError(msg)) charCount += msg.content.length;
     }
 
     if (selected.length === 0) return '';

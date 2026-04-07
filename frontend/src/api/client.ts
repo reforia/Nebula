@@ -170,6 +170,7 @@ export interface Agent {
   nas_paths: string;
   initialized: number;
   execution_mode: 'local' | 'remote';
+  mcp_auto_reset: number;
   has_remote_token?: boolean;
   remote_connected?: boolean | null;
   remote_last_seen?: string | null;
