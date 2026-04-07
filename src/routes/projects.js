@@ -1083,7 +1083,7 @@ router.post('/:id/tasks', (req, res) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [id, targetAgentId, project.id, name.trim(), prompt.trim(), type,
      type === 'cron' ? cron_expression : null, webhookSecret,
-     enabled !== undefined ? (enabled ? 1 : 0) : 1, max_turns || 50, timeout_ms || 600000]
+     enabled !== undefined ? (enabled ? 1 : 0) : 1, max_turns || 50, timeout_ms || null]
   );
 
   const task = getOne('SELECT * FROM tasks WHERE id = ?', [id]);

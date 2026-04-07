@@ -339,7 +339,7 @@ export interface Task {
   webhook_url?: string;
   enabled: number;
   max_turns: number;
-  timeout_ms: number;
+  timeout_ms: number | null;
   last_run_at?: string;
   last_status?: string;
   created_at: string;

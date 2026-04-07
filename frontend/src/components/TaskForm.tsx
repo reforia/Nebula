@@ -17,6 +17,7 @@ export default function TaskForm({ agentId, projectId, task, onClose, onSaved }:
   const [cronExpr, setCronExpr] = useState(task?.cron_expression || '0 9 * * *');
   const [enabled, setEnabled] = useState(task ? !!task.enabled : true);
   const [maxTurns, setMaxTurns] = useState(task?.max_turns || 50);
+  const [timeoutMin, setTimeoutMin] = useState<string>(task?.timeout_ms ? String(task.timeout_ms / 60000) : '');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -37,6 +38,7 @@ export default function TaskForm({ agentId, projectId, task, onClose, onSaved }:
       const data: any = {
         name, prompt, trigger_type: triggerType,
         enabled: enabled as any, max_turns: maxTurns,
+        timeout_ms: timeoutMin ? Math.round(parseFloat(timeoutMin) * 60000) : null,
       };
       if (triggerType === 'cron') data.cron_expression = cronExpr;
 
@@ -99,7 +101,12 @@ export default function TaskForm({ agentId, projectId, task, onClose, onSaved }:
           <div>
             <label className="text-xs text-nebula-muted block mb-1">Max Turns</label>
             <input type="number" value={maxTurns} onChange={e => setMaxTurns(parseInt(e.target.value) || 50)} min={1} max={100} className="w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded-lg text-sm text-nebula-text focus:outline-none focus:border-nebula-accent/50" />
-            <p className="text-[10px] text-nebula-muted mt-1">Timeout inherited from agent or org settings</p>
+          </div>
+
+          <div>
+            <label className="text-xs text-nebula-muted block mb-1">Timeout (minutes)</label>
+            <input type="number" value={timeoutMin} onChange={e => setTimeoutMin(e.target.value)} min={1} placeholder="Inherit from agent / org" className="w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded-lg text-sm text-nebula-text focus:outline-none focus:border-nebula-accent/50" />
+            <p className="text-[10px] text-nebula-muted mt-1">Leave empty to inherit from agent or org settings</p>
           </div>
 
           {triggerType === 'webhook' && task && (task as any).webhook_secret && (
