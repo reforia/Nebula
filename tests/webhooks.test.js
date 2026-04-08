@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'crypto';
-import { createApp, resetDb, request, setupAdmin, createTestAgent, getOne, run } from './setup.js';
+import { createApp, resetDb, request, setupAdmin, registerTestUser, createTestAgent, getOne, run, setOrgSetting } from './setup.js';
 
 // Webhook tests trigger async executor activity (CC spawn attempts that fail in tests).
 // Wait long enough for the async error path to complete before the test ends,
@@ -158,6 +158,32 @@ describe('Webhooks API', () => {
     it('is publicly accessible without session cookie', async () => {
       const res = await request(app, 'POST', `/api/webhooks/${taskId}?secret=${webhookSecret}`, {
         body: { test: true },
+      });
+      assert.equal(res.status, 200);
+      await new Promise(r => setTimeout(r, ASYNC_SETTLE));
+    });
+
+    it('rejects webhook when cron_enabled is disabled for org', async () => {
+      // Get the agent's org_id to set the org setting
+      const agent = getOne('SELECT * FROM agents WHERE id = ?', [agentId]);
+      setOrgSetting(agent.org_id, 'cron_enabled', '0');
+
+      const res = await request(app, 'POST', `/api/webhooks/${taskId}`, {
+        body: { ref: 'refs/heads/main' },
+        headers: { 'X-Webhook-Secret': webhookSecret },
+      });
+      assert.equal(res.status, 503);
+      assert.ok(res.body.error.includes('paused'));
+    });
+
+    it('accepts webhook when cron_enabled is re-enabled', async () => {
+      const agent = getOne('SELECT * FROM agents WHERE id = ?', [agentId]);
+      setOrgSetting(agent.org_id, 'cron_enabled', '0');
+      setOrgSetting(agent.org_id, 'cron_enabled', '1');
+
+      const res = await request(app, 'POST', `/api/webhooks/${taskId}`, {
+        body: { ref: 'refs/heads/main' },
+        headers: { 'X-Webhook-Secret': webhookSecret },
       });
       assert.equal(res.status, 200);
       await new Promise(r => setTimeout(r, ASYNC_SETTLE));

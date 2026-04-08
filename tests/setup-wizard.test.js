@@ -347,5 +347,113 @@ describe('Setup Wizard API', () => {
       });
       assert.equal(res.status, 200);
     });
+
+    it('inserts welcome message for agents created from template', async () => {
+      const { cookie, orgId } = registerTestUser(app);
+
+      await request(app, 'POST', '/api/setup/complete', {
+        cookie,
+        body: { settings: {} },
+      });
+
+      const agent = getOne('SELECT * FROM agents WHERE org_id = ?', [orgId]);
+      assert.ok(agent, 'Agent should exist');
+
+      const conv = getOne('SELECT * FROM conversations WHERE agent_id = ?', [agent.id]);
+      assert.ok(conv, 'Conversation should exist');
+
+      const msg = getOne(
+        "SELECT * FROM messages WHERE conversation_id = ? AND role = 'system' AND message_type = 'system'",
+        [conv.id]
+      );
+      assert.ok(msg, 'Welcome message should be inserted');
+      assert.ok(msg.content.includes('initial setup'), 'Message should contain setup instructions');
+    });
+
+    it('applies selected template by templateId', async () => {
+      const { cookie, orgId } = registerTestUser(app);
+
+      const res = await request(app, 'POST', '/api/setup/complete', {
+        cookie,
+        body: { settings: {}, templateId: 'software-dev-team' },
+      });
+      assert.equal(res.status, 200);
+
+      const agents = getAll('SELECT * FROM agents WHERE org_id = ?', [orgId]);
+      assert.ok(agents.length > 1, 'Template with multiple agents should create more than 1');
+    });
+
+    it('falls back to starter template for unknown templateId', async () => {
+      const { cookie, orgId } = registerTestUser(app);
+
+      const res = await request(app, 'POST', '/api/setup/complete', {
+        cookie,
+        body: { settings: {}, templateId: 'nonexistent-template' },
+      });
+      assert.equal(res.status, 200);
+
+      const agents = getAll('SELECT * FROM agents WHERE org_id = ?', [orgId]);
+      assert.ok(agents.length > 0, 'Should fall back to starter template');
+      assert.equal(agents[0].name, 'Assistant');
+    });
+
+    it('creates agent tasks from template', async () => {
+      const { cookie, orgId } = registerTestUser(app);
+
+      await request(app, 'POST', '/api/setup/complete', {
+        cookie,
+        body: { settings: {}, templateId: 'indie-game-studio' },
+      });
+
+      const agents = getAll('SELECT * FROM agents WHERE org_id = ?', [orgId]);
+      const tasks = getAll(
+        `SELECT t.* FROM tasks t JOIN agents a ON t.agent_id = a.id WHERE a.org_id = ?`,
+        [orgId]
+      );
+      assert.ok(tasks.length > 0, 'Template tasks should be created');
+    });
+
+    it('creates org-wide skills from template', async () => {
+      const { cookie, orgId } = registerTestUser(app);
+
+      await request(app, 'POST', '/api/setup/complete', {
+        cookie,
+        body: { settings: {}, templateId: 'indie-game-studio' },
+      });
+
+      const skills = getAll(
+        "SELECT * FROM custom_skills WHERE org_id = ? AND agent_id IS NULL",
+        [orgId]
+      );
+      assert.ok(skills.length > 0, 'Org-wide skills from template should be created');
+    });
+  });
+
+  // ─── POST /api/setup/create-admin with orgName ────────────
+
+  describe('POST /api/setup/create-admin with orgName', () => {
+    it('uses custom org name when provided', async () => {
+      const res = await request(app, 'POST', '/api/setup/create-admin', {
+        body: { email: 'admin@example.com', password: 'testpass123', name: 'Jay', orgName: 'Enigma Entertainment' },
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.orgs[0].name, 'Enigma Entertainment');
+    });
+
+    it('defaults to name-based org name when orgName is empty', async () => {
+      const res = await request(app, 'POST', '/api/setup/create-admin', {
+        body: { email: 'admin@example.com', password: 'testpass123', name: 'Jay', orgName: '' },
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.orgs[0].name, "Jay's Organization");
+    });
+
+    it('defaults to name-based org name when orgName is not provided', async () => {
+      const res = await request(app, 'POST', '/api/setup/create-admin', {
+        body: { email: 'admin@example.com', password: 'testpass123', name: 'Jay' },
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.orgs[0].name, "Jay's Organization");
+    });
   });
 });

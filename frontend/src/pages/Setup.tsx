@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { getLoginUrl, completeSetup, getRuntimes, detectRuntimes, createAdmin, getSetupStatus, RuntimeInfo } from '../api/client';
+import { getLoginUrl, completeSetup, getRuntimes, detectRuntimes, createAdmin, getSetupStatus, RuntimeInfo, listTemplates, TemplateSummary } from '../api/client';
 
-type Step = 'auth' | 'runtimes' | 'complete';
+type Step = 'auth' | 'runtimes' | 'template' | 'complete';
 
 interface Props {
   initialStep?: Step;
@@ -27,12 +27,18 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
   const [detecting, setDetecting] = useState(false);
   const [defaultRuntime, setDefaultRuntime] = useState('');
 
-  // Step 3: Completing
+  // Step 3: Template
+  const [templates, setTemplates] = useState<TemplateSummary[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState('starter');
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+
+  // Step 4: Completing
   const [completing, setCompleting] = useState(false);
 
   const steps: { key: Step; label: string }[] = [
     { key: 'auth', label: authProvider === 'enigma' ? 'Sign In' : 'Admin Account' },
     { key: 'runtimes', label: 'Runtimes' },
+    { key: 'template', label: 'Template' },
     { key: 'complete', label: 'Launch' },
   ];
   const currentStepIndex = steps.findIndex(s => s.key === step);
@@ -53,6 +59,17 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
         })
         .catch(() => {})
         .finally(() => setDetecting(false));
+    }
+  }, [step]);
+
+  // Load templates when entering step 3
+  useEffect(() => {
+    if (step === 'template') {
+      setLoadingTemplates(true);
+      listTemplates()
+        .then(t => setTemplates(t))
+        .catch(() => {})
+        .finally(() => setLoadingTemplates(false));
     }
   }, [step]);
 
@@ -93,7 +110,7 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
     try {
       const settings: Record<string, string> = {};
       if (defaultRuntime) settings.default_runtime = defaultRuntime;
-      await completeSetup({ settings });
+      await completeSetup({ settings, templateId: selectedTemplate || undefined });
       onComplete();
     } catch (err: any) {
       setError(err.message);
@@ -296,7 +313,7 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
               )}
 
               <button
-                onClick={() => { setError(''); setStep('complete'); }}
+                onClick={() => { setError(''); setStep('template'); }}
                 disabled={availableRuntimes.length === 0}
                 className="w-full py-2.5 text-sm bg-nebula-accent text-nebula-bg rounded-xl font-semibold hover:brightness-110 disabled:opacity-50 transition-all shadow-glow"
               >
@@ -305,7 +322,68 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
             </div>
           )}
 
-          {/* Step 3: Complete */}
+          {/* Step 3: Template */}
+          {step === 'template' && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-base font-medium mb-1">Choose a Template</h2>
+                <p className="text-nebula-muted text-xs mb-3">
+                  Pick a starting template for your organization. You can customize agents, skills, and tasks later.
+                </p>
+              </div>
+
+              {loadingTemplates ? (
+                <div className="flex items-center justify-center py-6">
+                  <p className="text-sm text-nebula-muted">Loading templates...</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {templates.map(t => (
+                    <div
+                      key={t.id}
+                      onClick={() => setSelectedTemplate(t.id)}
+                      className={`p-3 rounded-xl border transition-colors cursor-pointer ${
+                        selectedTemplate === t.id
+                          ? 'border-nebula-accent/30 bg-nebula-accent/5'
+                          : 'border-nebula-border hover:border-nebula-accent/20'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{t.icon}</span>
+                        <span className="text-sm font-medium">{t.name}</span>
+                        <span className="text-[10px] text-nebula-muted ml-auto">
+                          {t.agents} agent{t.agents !== 1 ? 's' : ''}
+                          {t.skills > 0 && ` · ${t.skills} skill${t.skills !== 1 ? 's' : ''}`}
+                          {t.tasks > 0 && ` · ${t.tasks} task${t.tasks !== 1 ? 's' : ''}`}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-nebula-muted mt-1 line-clamp-2">{t.description}</p>
+                    </div>
+                  ))}
+                  {templates.length === 0 && (
+                    <p className="text-sm text-nebula-muted text-center py-4">No templates found. A default agent will be created.</p>
+                  )}
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-1">
+                <button
+                  onClick={() => { setError(''); setStep('runtimes'); }}
+                  className="flex-1 py-2.5 text-sm bg-nebula-surface border border-nebula-border rounded-xl hover:bg-nebula-hover transition-colors"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={() => { setError(''); setStep('complete'); }}
+                  className="flex-1 py-2.5 text-sm bg-nebula-accent text-nebula-bg rounded-xl font-semibold hover:brightness-110 transition-all shadow-glow"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: Complete */}
           {step === 'complete' && (
             <div className="space-y-4">
               <div>
@@ -331,14 +409,16 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-nebula-muted">Default Agent</span>
-                  <span className="text-nebula-text">Assistant (Sonnet 4.6)</span>
+                  <span className="text-nebula-muted">Template</span>
+                  <span className="text-nebula-text">
+                    {templates.find(t => t.id === selectedTemplate)?.name || selectedTemplate || 'Starter'}
+                  </span>
                 </div>
               </div>
 
               <div className="flex gap-3 pt-1">
                 <button
-                  onClick={() => { setError(''); setStep('runtimes'); }}
+                  onClick={() => { setError(''); setStep('template'); }}
                   disabled={completing}
                   className="flex-1 py-2.5 text-sm bg-nebula-surface border border-nebula-border rounded-xl hover:bg-nebula-hover disabled:opacity-30 transition-colors"
                 >

@@ -115,7 +115,7 @@ router.post('/complete', requireAuth, (req, res) => {
     return res.status(403).json({ error: 'Setup already completed' });
   }
 
-  const { settings } = req.body;
+  const { settings, templateId } = req.body;
 
   try {
     // Apply backend API keys — whitelist only
@@ -128,20 +128,25 @@ router.post('/complete', requireAuth, (req, res) => {
       }
     }
 
-    // Apply starter template
-    const starterTemplatePath = path.resolve(
-      path.dirname(new URL(import.meta.url).pathname), '..', '..', 'templates', 'starter.json'
-    );
+    // Load template — user-selected or fallback to starter
+    const DATA_DIR = process.env.DATA_DIR || './data';
+    const TEMPLATES_DIR = path.join(DATA_DIR, 'templates');
+    const builtinDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'templates');
+
     let template = null;
-    try {
-      template = JSON.parse(fs.readFileSync(starterTemplatePath, 'utf8'));
-    } catch {
-      const DATA_DIR = process.env.DATA_DIR || './data';
-      const fallback = path.join(DATA_DIR, 'templates', 'starter.json');
+    const templateFile = (templateId || 'starter') + '.json';
+    // Try /data/templates first, then built-in
+    for (const dir of [TEMPLATES_DIR, builtinDir]) {
+      const p = path.join(dir, templateFile);
       try {
-        template = JSON.parse(fs.readFileSync(fallback, 'utf8'));
-      } catch {
-        console.warn('[setup] Starter template not found');
+        template = JSON.parse(fs.readFileSync(p, 'utf8'));
+        break;
+      } catch {}
+    }
+    if (!template) {
+      console.warn(`[setup] Template "${templateFile}" not found, trying starter`);
+      for (const dir of [TEMPLATES_DIR, builtinDir]) {
+        try { template = JSON.parse(fs.readFileSync(path.join(dir, 'starter.json'), 'utf8')); break; } catch {}
       }
     }
 
@@ -179,10 +184,79 @@ router.post('/complete', requireAuth, (req, res) => {
           [convId, agentId, sessionId]
         );
 
+        // Insert welcome message so the agent shows setup instructions
+        const welcomeMsgId = generateId();
+        run(
+          `INSERT INTO messages (id, agent_id, conversation_id, role, content, message_type, is_read, created_at)
+           VALUES (?, ?, ?, 'system', ?, 'system', 1, datetime('now'))`,
+          [welcomeMsgId, agentId, convId,
+           `Welcome! This agent needs some initial setup before it can work effectively.\n\nPlease provide:\n1. **Role** — What is this agent's primary responsibility? (set in agent settings)\n2. **Access** — What tools, APIs, or repos will it need?\n3. **Context** — Any domain knowledge or guidelines it should follow?\n\nOnce you share this, the agent will set up its working environment — guidelines, org profile, and memory.`]
+        );
+
         // Create agent directory
         const agentDir = orgPath(req.orgId, 'agents', agentId);
         fs.mkdirSync(agentDir, { recursive: true });
         fs.mkdirSync(path.join(agentDir, 'workspace'), { recursive: true });
+
+        // Agent tasks
+        if (Array.isArray(agentDef.tasks)) {
+          for (const taskDef of agentDef.tasks) {
+            if (!taskDef.name) continue;
+            run(
+              `INSERT INTO tasks (id, agent_id, name, cron_expression, prompt, enabled)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+              [generateId(), agentId, taskDef.name, taskDef.cron || null, taskDef.prompt || '', taskDef.enabled ? 1 : 0]
+            );
+          }
+        }
+
+        // Agent skills
+        if (Array.isArray(agentDef.skills)) {
+          for (const skillDef of agentDef.skills) {
+            if (!skillDef.name) continue;
+            run(
+              `INSERT INTO custom_skills (id, org_id, agent_id, name, description, content, enabled)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [generateId(), req.orgId, agentId, skillDef.name, skillDef.description || '', skillDef.content || '', skillDef.enabled ? 1 : 0]
+            );
+          }
+        }
+
+        // Agent MCP servers
+        if (Array.isArray(agentDef.mcp_servers)) {
+          for (const mcpDef of agentDef.mcp_servers) {
+            if (!mcpDef.name) continue;
+            run(
+              `INSERT INTO mcp_servers (id, org_id, agent_id, name, transport, config, enabled)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [generateId(), req.orgId, agentId, mcpDef.name, mcpDef.transport || 'stdio', JSON.stringify(mcpDef.config || {}), mcpDef.enabled ? 1 : 0]
+            );
+          }
+        }
+      }
+    }
+
+    // Org-wide skills
+    if (Array.isArray(template?.skills)) {
+      for (const skillDef of template.skills) {
+        if (!skillDef.name) continue;
+        run(
+          `INSERT INTO custom_skills (id, org_id, agent_id, name, description, content, enabled)
+           VALUES (?, ?, NULL, ?, ?, ?, ?)`,
+          [generateId(), req.orgId, skillDef.name, skillDef.description || '', skillDef.content || '', skillDef.enabled ? 1 : 0]
+        );
+      }
+    }
+
+    // Org-wide MCP servers
+    if (Array.isArray(template?.mcp_servers)) {
+      for (const mcpDef of template.mcp_servers) {
+        if (!mcpDef.name) continue;
+        run(
+          `INSERT INTO mcp_servers (id, org_id, agent_id, name, transport, config, enabled)
+           VALUES (?, ?, NULL, ?, ?, ?, ?)`,
+          [generateId(), req.orgId, null, mcpDef.name, mcpDef.transport || 'stdio', JSON.stringify(mcpDef.config || {}), mcpDef.enabled ? 1 : 0]
+        );
       }
     }
 

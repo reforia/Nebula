@@ -57,6 +57,28 @@ describe('System API', () => {
       assert.equal(getOrgSetting(orgId, 'some_random_key'), null);
     });
 
+    it('updates cron_enabled setting', async () => {
+      const res = await request(app, 'PUT', '/api/settings', {
+        cookie,
+        body: { cron_enabled: '0' },
+      });
+      assert.equal(res.status, 200);
+      assert.equal(getOrgSetting(orgId, 'cron_enabled'), '0');
+
+      // Re-enable
+      await request(app, 'PUT', '/api/settings', {
+        cookie,
+        body: { cron_enabled: '1' },
+      });
+      assert.equal(getOrgSetting(orgId, 'cron_enabled'), '1');
+    });
+
+    it('returns cron_enabled in GET settings', async () => {
+      setOrgSetting(orgId, 'cron_enabled', '0');
+      const res = await request(app, 'GET', '/api/settings', { cookie });
+      assert.equal(res.body.cron_enabled, '0');
+    });
+
     it('does not update smtp_pass when masked value sent', async () => {
       setOrgSetting(orgId, 'smtp_pass', 'real_password');
       await request(app, 'PUT', '/api/settings', {

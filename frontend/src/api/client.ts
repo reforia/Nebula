@@ -51,6 +51,7 @@ export interface SetupStatus {
 }
 export interface SetupCompleteData {
   settings?: Record<string, string>;
+  templateId?: string;
 }
 
 export async function getSetupStatus(): Promise<SetupStatus> {

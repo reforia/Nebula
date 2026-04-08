@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getSettings, updateSettings, getStatus, OrgStatus, getGlobalKnowledge, updateGlobalKnowledge, getSecrets, createSecret, deleteSecret, OrgSecret, updateOrg, getErrors, dismissError, dismissAllErrors, ExecutionError, exportTemplate, importTemplate, OrgTemplate, getSecretRefs, SecretRef, listTemplates, getTemplate, TemplateSummary, getCleanupStatus, runCleanup, CleanupStatus, getRuntimes, detectRuntimes, setDefaultRuntime, RuntimeInfo } from '../api/client';
+import { getSettings, updateSettings, getStatus, OrgStatus, getGlobalKnowledge, updateGlobalKnowledge, getSecrets, createSecret, deleteSecret, OrgSecret, updateOrg, getErrors, dismissError, dismissAllErrors, ExecutionError, exportTemplate, importTemplate, OrgTemplate, getSecretRefs, SecretRef, listTemplates, getTemplate, TemplateSummary, getCleanupStatus, runCleanup, CleanupStatus, getRuntimes, detectRuntimes, setDefaultRuntime, RuntimeInfo, deleteOrg } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 // Models are now static from runtime adapters — no cache invalidation needed
 import SkillEditor from './SkillEditor';
@@ -19,7 +19,7 @@ interface Props {
 }
 
 export default function GlobalSettings({ onClose, onLogout }: Props) {
-  const { currentOrg, refresh: refreshAuth } = useAuth();
+  const { currentOrg, orgs, switchOrg, refresh: refreshAuth } = useAuth();
   const [tab, setTab] = useState<'general' | 'templates' | 'smtp' | 'runtimes' | 'knowledge' | 'skills' | 'mcp' | 'secrets' | 'system'>('general');
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [globalMd, setGlobalMd] = useState('');
@@ -54,6 +54,8 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
   // Cleanup state
   const [cleanupStatus, setCleanupStatus] = useState<CleanupStatus | null>(null);
   const [cleanupRunning, setCleanupRunning] = useState(false);
+  const [deleteOrgConfirm, setDeleteOrgConfirm] = useState('');
+  const [deletingOrg, setDeletingOrg] = useState(false);
 
   const refreshSecrets = () => {
     getSecrets().then(setSecrets).catch(() => {});
@@ -998,6 +1000,49 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                   </div>
                 )}
               </div>
+
+              {/* Danger zone — Delete organization */}
+              {orgs.length > 1 && (
+                <div className="pt-4 border-t border-red-900/30 space-y-3">
+                  <h4 className="text-sm font-medium text-red-400">Danger Zone</h4>
+                  <p className="text-[11px] text-nebula-muted">
+                    Permanently delete this organization and all its data — agents, conversations, tasks, skills, and files. This cannot be undone.
+                  </p>
+                  <div className="space-y-2">
+                    <label className="text-[11px] text-nebula-muted block">
+                      Type <strong className="text-nebula-text">{currentOrg?.name}</strong> to confirm:
+                    </label>
+                    <input
+                      value={deleteOrgConfirm}
+                      onChange={e => setDeleteOrgConfirm(e.target.value)}
+                      placeholder={currentOrg?.name}
+                      className="w-full px-3 py-2 bg-nebula-bg border border-red-900/30 rounded text-sm text-nebula-text focus:outline-none focus:border-red-500"
+                    />
+                    <button
+                      onClick={async () => {
+                        if (!currentOrg) return;
+                        setDeletingOrg(true);
+                        try {
+                          await deleteOrg(currentOrg.id);
+                          const otherOrg = orgs.find(o => o.id !== currentOrg.id);
+                          if (otherOrg) {
+                            await switchOrg(otherOrg.id);
+                          }
+                          onClose();
+                        } catch (err: any) {
+                          setError(err.message);
+                        } finally {
+                          setDeletingOrg(false);
+                        }
+                      }}
+                      disabled={deletingOrg || deleteOrgConfirm !== currentOrg?.name}
+                      className="px-4 py-2 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {deletingOrg ? 'Deleting...' : 'Delete Organization'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
