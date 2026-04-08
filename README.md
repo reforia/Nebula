@@ -48,8 +48,13 @@ cd Nebula
 npm install
 cd frontend && npm install && npm run build && cd ..
 
+# Generate an encryption key
+echo "NEBULA_ENCRYPTION_KEY=$(openssl rand -hex 32)" > .env
+
 DATA_DIR=./data npm start
 ```
+
+> **Note:** `npm install` runs a postinstall script that fixes execute permissions on the `node-pty` spawn helper. If you see `posix_spawnp failed` errors, run `node scripts/postinstall.js` manually.
 
 ### Requirements
 

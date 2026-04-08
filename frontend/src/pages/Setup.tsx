@@ -19,6 +19,7 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [adminName, setAdminName] = useState('');
+  const [orgName, setOrgName] = useState('');
   const [creating, setCreating] = useState(false);
 
   // Step 2: Runtimes
@@ -75,7 +76,7 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
     setCreating(true);
     setError('');
     try {
-      await createAdmin(adminEmail, adminPassword, adminName);
+      await createAdmin(adminEmail, adminPassword, adminName, orgName);
       await refresh();
       setStep('runtimes');
     } catch (err: any) {
@@ -178,6 +179,13 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
                   value={adminEmail}
                   onChange={e => setAdminEmail(e.target.value)}
                   required
+                  className="w-full p-3 bg-nebula-bg border border-nebula-border rounded-xl text-sm text-nebula-text placeholder:text-nebula-muted focus:outline-none focus:border-nebula-accent/50"
+                />
+                <input
+                  type="text"
+                  placeholder="Workspace name (optional)"
+                  value={orgName}
+                  onChange={e => setOrgName(e.target.value)}
                   className="w-full p-3 bg-nebula-bg border border-nebula-border rounded-xl text-sm text-nebula-text placeholder:text-nebula-muted focus:outline-none focus:border-nebula-accent/50"
                 />
                 <input

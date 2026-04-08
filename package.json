@@ -5,6 +5,7 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/postinstall.js",
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "build:frontend": "cd frontend && npm install && npm run build",

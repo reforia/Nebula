@@ -69,10 +69,10 @@ export async function getLoginUrl(): Promise<{ url: string; platformUrl: string 
   return res.json();
 }
 
-export const createAdmin = (email: string, password: string, name: string) =>
+export const createAdmin = (email: string, password: string, name: string, orgName?: string) =>
   request<AuthResponse>('/api/setup/create-admin', {
     method: 'POST',
-    body: JSON.stringify({ email, password, name }),
+    body: JSON.stringify({ email, password, name, orgName }),
   });
 
 // Auth

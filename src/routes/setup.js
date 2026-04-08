@@ -52,7 +52,7 @@ router.post('/create-admin', (req, res) => {
     return res.status(400).json({ error: 'Local registration not available with this auth provider' });
   }
 
-  const { email, password, name } = req.body;
+  const { email, password, name, orgName } = req.body;
   if (!email?.trim() || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
   }
@@ -73,8 +73,9 @@ router.post('/create-admin', (req, res) => {
 
     const orgId = generateId();
     const displayName = (name || normalizedEmail).trim();
+    const finalOrgName = orgName?.trim() || `${displayName}'s Workspace`;
     run('INSERT INTO organizations (id, name, owner_id) VALUES (?, ?, ?)',
-      [orgId, `${displayName}'s Workspace`, userId]);
+      [orgId, finalOrgName, userId]);
 
     initOrgDirectories(orgId);
     const defaultOrgSettings = {
@@ -95,7 +96,7 @@ router.post('/create-admin', (req, res) => {
 
     res.json({
       user: { id: userId, email: normalizedEmail, name: displayName },
-      orgs: [{ id: orgId, name: `${displayName}'s Workspace`, owner_id: userId }],
+      orgs: [{ id: orgId, name: finalOrgName, owner_id: userId }],
       currentOrgId: orgId,
     });
   } catch (err) {
