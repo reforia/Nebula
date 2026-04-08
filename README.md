@@ -48,8 +48,9 @@ cd Nebula
 npm install
 cd frontend && npm install && npm run build && cd ..
 
-# Generate an encryption key
-echo "NEBULA_ENCRYPTION_KEY=$(openssl rand -hex 32)" > .env
+# Create .env from the example, then generate an encryption key
+cp .env.example .env
+echo "NEBULA_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
 
 DATA_DIR=./data npm start
 ```
@@ -121,17 +122,25 @@ User (email/password auth)
 
 ## Configuration
 
-All configuration is via environment variables. See [`.env.example`](.env.example) for the full list.
+All configuration is via environment variables. Copy `.env.example` to `.env` and edit as needed — both Docker and from-source setups read from it.
+
+```bash
+cp .env.example .env
+```
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AUTH_PROVIDER` | `local` | Auth mode: `local` (email/password) or `enigma` (OAuth) |
+| `NEBULA_ENCRYPTION_KEY` | — | **Required.** AES-256 key for secrets vault. Generate with `openssl rand -hex 32`. |
 | `NEBULA_PORT` | `8080` | HTTP port |
-| `NEBULA_URL` | — | External URL of this instance (e.g. `http://your-server:8080`). Required for remote agents — built-in skills use this to call the API. |
-| `NEBULA_DATA_DIR` | `./data` | Persistent data directory |
-| `NEBULA_ENCRYPTION_KEY` | — | AES-256 key for secrets vault (required) |
-| `RUNTIMES_DIR` | `./runtimes` | Directory for CLI runtime binaries. Place or symlink binaries into `runtimes/bin/` — they are auto-detected at startup. |
+| `NEBULA_URL` | — | External URL of this instance (e.g. `http://your-server:8080`). Required for remote agents and built-in skills. |
+| `NEBULA_DATA_DIR` | `./data` | Persistent data directory (SQLite database, agent workspaces, backups) |
+| `RUNTIMES_DIR` | `./runtimes` | Directory for CLI runtime binaries. Place or symlink binaries into `runtimes/bin/` — auto-detected at startup. |
+| `CLI_HOME_DIR` | `./cli-home` | Docker only. Persists CLI auth and config (`~/.claude`, `~/.config/gemini`, etc.) across container restarts. |
+| `SSH_KEYS_DIR` | `./ssh-keys` | Docker only. Mounts SSH keys into the container (read-only). |
+| `NEBULA_UID` / `NEBULA_GID` | `1000` | Docker only. Container user UID/GID — match your host user for correct file ownership. |
+| `AUTH_PROVIDER` | `local` | Auth mode: `local` (email/password) or `enigma` (OAuth) |
 | `TZ` | `UTC` | Timezone for cron schedules |
+| `HTTP_PROXY` / `HTTPS_PROXY` | — | HTTP proxy for outbound requests. `NO_PROXY` defaults to `localhost,127.0.0.1`. |
 
 ## CLI Runtime Registry
 

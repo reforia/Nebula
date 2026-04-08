@@ -14,8 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl git jq openssh-client ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Create HOME directories writable by any user (UID set at runtime via docker-compose)
-RUN mkdir -p /home/node/.claude /home/node/.ssh && chmod -R 777 /home/node
+# Create HOME writable by any user (UID set at runtime via docker-compose)
+RUN mkdir -p /home/node/.ssh && chmod -R 777 /home/node
 
 WORKDIR /app
 
@@ -31,7 +31,6 @@ COPY src/ ./src/
 COPY migrations/ ./migrations/
 COPY scripts/ ./scripts/
 COPY templates/ ./templates/
-COPY CLAUDE.md ./
 
 # Copy built frontend
 COPY --from=frontend-build /build/frontend/dist ./frontend/dist/

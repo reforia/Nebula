@@ -8,7 +8,7 @@ services:
       - "${NEBULA_PORT:-8080}:8080"
     volumes:
       - ${NEBULA_DATA_DIR:-./data}:/data
-      - ${CLAUDE_AUTH_DIR:-./claude-auth}:/home/node/.claude
+      - ${CLI_HOME_DIR:-./cli-home}:/home/node
       - ${SSH_KEYS_DIR:-./ssh-keys}:/home/node/.ssh:ro
       - ${RUNTIMES_DIR:-./runtimes}:/data/runtimes:ro
       # Place CLI binaries (claude, codex, gemini, etc.) in runtimes/bin/
