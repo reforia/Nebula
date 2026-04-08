@@ -61,10 +61,12 @@ DATA_DIR=./data npm start
 
 - **Node.js 22+** (if running from source)
 - **At least one CLI runtime** installed in the container or host:
-  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`)
+  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) — **most actively supported**
   - [OpenCode](https://opencode.ai) (`opencode`)
   - [Codex CLI](https://github.com/openai/codex) (`codex`)
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)
+
+> Claude Code is the primary development and testing target. Other runtimes are functional but may have rough edges — issues and PRs welcome.
 
 ## Feature Highlights
 ### Projects - Multi-Agent Collaboration with Git and External Resources
@@ -175,12 +177,27 @@ Use `scripts/deploy.sh` for tarball-based deployment to a remote server:
 NAS_HOST=user@your-server NAS_SSH_PORT=22 bash scripts/deploy.sh
 ```
 
-## Remote Agent Apps
+## Remote Agent App
 
-Agents can run on external machines, connecting back to Nebula via WebSocket:
+Agents can run on external machines, connecting back to Nebula via WebSocket. The **Agent App** (`agent-app/`) is a Tauri desktop app for macOS and Windows.
 
-- **Agent App** (`agent-app/`) — Tauri desktop app (macOS, Windows) with GUI
-- **Agent Client** (`agent-client/`) — Headless CLI client for servers
+### Building
+
+Requires [Rust](https://rustup.rs/) and [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+
+```bash
+cd agent-app
+npm install
+npm run tauri dev    # Development
+npm run tauri build  # Production binary (.dmg / .msi)
+```
+
+### Usage
+
+1. In Nebula web UI, open agent **Settings > General > Execution Mode > Remote**
+2. Click **Generate Token** and copy it
+3. Open the Agent App, paste the server URL, agent ID, and token
+4. The app connects via WebSocket and runs the CLI locally on your machine
 
 ## Security Model
 
