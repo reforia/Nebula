@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { getOne } from '../db.js';
+import { getOne, getOrgSetting } from '../db.js';
 import { executeTask } from '../services/task-executor.js';
 
 const router = Router();
@@ -36,6 +36,10 @@ router.post('/:taskId', async (req, res) => {
 
   const agent = getOne('SELECT * FROM agents WHERE id = ?', [task.agent_id]);
   if (!agent || !agent.enabled) return res.status(400).json({ error: 'Agent is disabled' });
+
+  if (getOrgSetting(agent.org_id, 'cron_enabled') === '0') {
+    return res.status(503).json({ error: 'Task execution is paused for this organization' });
+  }
 
   // Build prompt with webhook payload
   const payload = JSON.stringify(req.body, null, 2);

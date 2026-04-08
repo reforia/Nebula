@@ -188,6 +188,24 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
               </div>
               <p className="text-[10px] text-nebula-muted mt-1">How many recent messages are passed as context when an agent is @mentioned. Max chars = 0 means no truncation. Each agent can override.</p>
 
+              {/* Cron kill switch */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-xs text-nebula-text block">Scheduled Tasks</label>
+                  <p className="text-[10px] text-nebula-muted">Enable or disable all cron and webhook task execution org-wide.</p>
+                </div>
+                <button
+                  onClick={() => updateSetting('cron_enabled', settings.cron_enabled === '0' ? '1' : '0')}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    settings.cron_enabled !== '0' ? 'bg-nebula-accent' : 'bg-nebula-border'
+                  }`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+                    settings.cron_enabled !== '0' ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                  }`} />
+                </button>
+              </div>
+
               {/* Task stagger */}
               <div>
                 <label className="text-xs text-nebula-muted block mb-1">Task Stagger Delay (minutes)</label>

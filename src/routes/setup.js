@@ -73,9 +73,9 @@ router.post('/create-admin', (req, res) => {
 
     const orgId = generateId();
     const displayName = (name || normalizedEmail).trim();
-    const finalOrgName = orgName?.trim() || `${displayName}'s Workspace`;
+    const orgDisplayName = orgName?.trim() || `${displayName}'s Organization`;
     run('INSERT INTO organizations (id, name, owner_id) VALUES (?, ?, ?)',
-      [orgId, finalOrgName, userId]);
+      [orgId, orgDisplayName, userId]);
 
     initOrgDirectories(orgId);
     const defaultOrgSettings = {
@@ -96,7 +96,7 @@ router.post('/create-admin', (req, res) => {
 
     res.json({
       user: { id: userId, email: normalizedEmail, name: displayName },
-      orgs: [{ id: orgId, name: finalOrgName, owner_id: userId }],
+      orgs: [{ id: orgId, name: orgDisplayName, owner_id: userId }],
       currentOrgId: orgId,
     });
   } catch (err) {

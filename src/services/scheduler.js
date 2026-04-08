@@ -1,5 +1,5 @@
 import { Cron } from 'croner';
-import { getAll, getOne } from '../db.js';
+import { getAll, getOne, getOrgSetting } from '../db.js';
 import { executeTask } from './task-executor.js';
 
 const SYS_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -99,6 +99,11 @@ export async function fireTask(taskId) {
   const agent = getOne('SELECT * FROM agents WHERE id = ?', [task.agent_id]);
   if (!agent || !agent.enabled) {
     console.warn(`[scheduler] Agent for task "${task.name}" is ${agent ? 'disabled' : 'missing'}, skipping`);
+    return;
+  }
+
+  if (getOrgSetting(agent.org_id, 'cron_enabled') === '0') {
+    console.warn(`[scheduler] Cron tasks paused for org ${agent.org_id}, skipping task "${task.name}"`);
     return;
   }
 

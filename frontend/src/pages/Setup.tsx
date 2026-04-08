@@ -76,7 +76,7 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
     setCreating(true);
     setError('');
     try {
-      await createAdmin(adminEmail, adminPassword, adminName, orgName);
+      await createAdmin(adminEmail, adminPassword, adminName, orgName || undefined);
       await refresh();
       setStep('runtimes');
     } catch (err: any) {
@@ -181,13 +181,16 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
                   required
                   className="w-full p-3 bg-nebula-bg border border-nebula-border rounded-xl text-sm text-nebula-text placeholder:text-nebula-muted focus:outline-none focus:border-nebula-accent/50"
                 />
-                <input
-                  type="text"
-                  placeholder="Workspace name (optional)"
-                  value={orgName}
-                  onChange={e => setOrgName(e.target.value)}
-                  className="w-full p-3 bg-nebula-bg border border-nebula-border rounded-xl text-sm text-nebula-text placeholder:text-nebula-muted focus:outline-none focus:border-nebula-accent/50"
-                />
+                <div>
+                  <input
+                    type="text"
+                    placeholder={`${adminName || 'Your'}'s Organization`}
+                    value={orgName}
+                    onChange={e => setOrgName(e.target.value)}
+                    className="w-full p-3 bg-nebula-bg border border-nebula-border rounded-xl text-sm text-nebula-text placeholder:text-nebula-muted focus:outline-none focus:border-nebula-accent/50"
+                  />
+                  <p className="text-[10px] text-nebula-muted mt-1 ml-1">Organization name (optional)</p>
+                </div>
                 <input
                   type="password"
                   placeholder="Password (min 8 characters)"
