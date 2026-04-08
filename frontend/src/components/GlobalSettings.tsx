@@ -16,9 +16,10 @@ function formatTokens(n: number): string {
 interface Props {
   onClose: () => void;
   onLogout: () => void;
+  onRefresh?: () => void;
 }
 
-export default function GlobalSettings({ onClose, onLogout }: Props) {
+export default function GlobalSettings({ onClose, onLogout, onRefresh }: Props) {
   const { currentOrg, orgs, switchOrg, refresh: refreshAuth } = useAuth();
   const [tab, setTab] = useState<'general' | 'templates' | 'smtp' | 'runtimes' | 'knowledge' | 'skills' | 'mcp' | 'secrets' | 'system'>('general');
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -412,6 +413,7 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                       const result = await importTemplate(tpl);
                       setImportStatus(`Imported: ${result.created.agents} agents, ${result.created.skills} skills, ${result.created.tasks} tasks, ${result.created.mcp_servers} MCP servers`);
                       setTimeout(() => setImportStatus(''), 5000);
+                      onRefresh?.();
                     } catch (err: any) { setError(err.message || 'Invalid template file'); }
                   }} />
                 </label>
@@ -512,6 +514,7 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                         setImportStatus(`Imported: ${result.created.agents} agents, ${result.created.skills} skills, ${result.created.tasks} tasks`);
                         setPreviewTemplate(null);
                         setTimeout(() => setImportStatus(''), 5000);
+                        onRefresh?.();
                       } catch (err: any) { setError(err.message); }
                     }}
                     className="w-full py-2 text-xs bg-nebula-accent text-nebula-bg rounded hover:brightness-110 font-medium"
@@ -1028,7 +1031,7 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
                           if (otherOrg) {
                             await switchOrg(otherOrg.id);
                           }
-                          onClose();
+                          window.location.reload();
                         } catch (err: any) {
                           setError(err.message);
                         } finally {

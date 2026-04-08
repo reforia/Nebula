@@ -334,6 +334,7 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
         <GlobalSettings
           onClose={() => setShowGlobalSettings(false)}
           onLogout={handleLogout}
+          onRefresh={() => { refreshAgents(); refreshProjects(); }}
         />
       )}
     </div>
