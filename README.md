@@ -99,6 +99,11 @@ DATA_DIR=./data npm start
 <img width="290" height="270" alt="image" src="https://github.com/user-attachments/assets/55fccd10-b5b5-45d9-b054-830b345d6041" />
 </p>
 
+### Remove Agent Execution
+<p align="center">
+<img width="362" height="486" alt="image" src="https://github.com/user-attachments/assets/7a127518-0a41-4773-a7e0-c7e044c5031e" />
+</p>
+
 ### And many, many more
 Layered Memory Management, Soul/Body splition, Org - Agent - Project context aggregation, Webhook, MCP, etc. Full features can be found [here](https://nebula.enigmaetmt.com/docs)
 
