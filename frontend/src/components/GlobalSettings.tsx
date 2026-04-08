@@ -112,7 +112,7 @@ export default function GlobalSettings({ onClose, onLogout }: Props) {
           </div>
 
           <div className="flex flex-wrap gap-1 mb-6 border-b border-nebula-border">
-            {(['general', 'templates', 'smtp', 'runtimes', 'knowledge', 'skills', 'mcp', 'secrets', 'system'] as const).map(t => (
+            {(['general', 'knowledge', 'runtimes', 'skills', 'mcp', 'smtp', 'templates', 'secrets', 'system'] as const).map(t => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
