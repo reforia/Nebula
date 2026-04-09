@@ -539,12 +539,19 @@ This is what the team sees first. It must be self-contained and scannable.
 ### Tier 2: Email Full Report
 Send the full report via the nebula-mail skill to **${notifyEmail || 'the configured notification address'}**.
 
+**Format:** Use the **nebula-html-report** skill for all HTML formatting. Build the email using its standard components.
+
+**Required sections (in order):**
+1. **Report Header** — your name, scan domain tags, date
+2. **Summary** — the 2-3 sentence summary in the summary box component
+3. **Findings** — each as a finding card with priority badge, extended analysis (market context, historical comparison, competitive implications beyond the conversation brief), and source citations
+4. **Internal Signals** — if applicable, use a data table for repo/build status
+5. **Action Items** — grouped by priority (URGENT / HIGH / MEDIUM / LOW), using the action items component
+6. **Footer** — agent name, org, scan type and date
+
 **Additional content beyond conversation brief:**
 - Extended analysis per finding (market context, historical comparison, competitive implications)
-- Full source list with clickable links at the bottom
-- Action items section with priority tags (URGENT / HIGH / MEDIUM / LOW)
-
-**Email format:** HTML with structured sections (h1 title with date, h2 for Summary/Findings/Sources/Action Items). Include all source URLs as clickable links.
+- Full source list with clickable links within each finding card
 
 **Email subject format:** \`[Your Name] Scan — [Domain Summary] ([Date])\`
 
@@ -585,3 +592,431 @@ Delete memories no longer relevant (market moved on, signal fully resolved with 
 - **Morning scan:** Full sweep of your domain. Cast wider net. Include both external signals and internal activity.
 - **Evening scan:** Focus on developments SINCE the morning scan. Shorter. Flag anything that changed, escalated, or is newly confirmed. Reference morning findings if they evolved. Skip re-reporting unchanged items.`;
 }
+
+export const HTML_REPORT_SKILL = `# Nebula HTML Report — Component Library
+
+Standard HTML components for Nebula email reports. When sending HTML email via nebula-mail, use these building blocks. Pass the assembled HTML as the \\\`html\\\` field in the send API — do not also set \\\`body\\\`.
+
+Copy component patterns exactly. Do not invent custom styles.
+
+## Color Palette
+
+| Token | Hex | Usage |
+|-------|-----|-------|
+| nebula-black | #1A1A2E | Header/footer background |
+| nebula-gold | #C9A227 | Accent — header bar, summary border |
+| body-bg | #F4F4F5 | Outer page background |
+| card-bg | #FFFFFF | Content area |
+| text-primary | #1A1A2E | Headings |
+| text-body | #374151 | Body copy |
+| text-muted | #6B7280 | Timestamps, captions, footer |
+| border | #E5E7EB | Dividers, card borders |
+
+## Priority Badge Colors
+
+All badges use the same pill style — only background-color changes:
+
+| Badge | Background | When to use |
+|-------|-----------|-------------|
+| URGENT | #DC2626 | Immediate action, deadline imminent |
+| HIGH | #D97706 | Important, act soon |
+| ACT | #7C3AED | Specific action needed |
+| MEDIUM | #2563EB | Standard priority |
+| WATCH | #0891B2 | Monitor for developments |
+| LOW | #059669 | Minor or informational with low-priority action |
+| NOTE | #6B7280 | No action needed, awareness only |
+
+## Base Document
+
+Every HTML email starts with this skeleton. Place components as table rows inside the inner content table where marked.
+
+\\\`\\\`\\\`html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>REPORT_TITLE</title>
+</head>
+<body style="margin:0; padding:0; background-color:#F4F4F5; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; color:#374151; font-size:14px; line-height:1.7;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F4F4F5;">
+<tr><td align="center" style="padding:24px 16px;">
+  <table role="presentation" width="680" cellpadding="0" cellspacing="0" style="max-width:680px; width:100%; background-color:#FFFFFF; border-radius:8px; overflow:hidden; border:1px solid #E5E7EB;">
+
+    <!-- HEADER -->
+    <!-- CONTENT ROWS (sections, findings, tables, etc.) -->
+    <!-- FOOTER -->
+
+  </table>
+</td></tr>
+</table>
+</body>
+</html>
+\\\`\\\`\\\`
+
+## Components
+
+### Report Header
+
+Dark banner with report title and subtitle. Gold accent bar at bottom.
+
+\\\`\\\`\\\`html
+<tr>
+  <td style="background-color:#1A1A2E; padding:28px 32px 20px; border-bottom:3px solid #C9A227;">
+    <h1 style="margin:0; font-size:22px; font-weight:700; color:#FFFFFF;">Report Title Here</h1>
+    <p style="margin:6px 0 0; font-size:13px; color:#9CA3AF;">2026-04-08 &middot; Morning sweep &middot; Domain tags here</p>
+  </td>
+</tr>
+\\\`\\\`\\\`
+
+### Section Heading
+
+Used for major sections (Summary, Findings, Action Items, Sources, etc.).
+
+\\\`\\\`\\\`html
+<tr>
+  <td style="padding:28px 32px 0;">
+    <h2 style="margin:0 0 10px; font-size:18px; font-weight:700; color:#1A1A2E; border-bottom:2px solid #E5E7EB; padding-bottom:8px;">Section Title</h2>
+  </td>
+</tr>
+\\\`\\\`\\\`
+
+### Summary Box
+
+Gold-accented box for the executive summary. Place after the first section heading.
+
+\\\`\\\`\\\`html
+<tr>
+  <td style="padding:12px 32px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="background-color:#FFFBEB; border-left:4px solid #C9A227; padding:16px 20px; border-radius:0 6px 6px 0;">
+          <p style="margin:0; font-size:14px; color:#374151; line-height:1.7;">Summary text here. Two to three sentences covering the most important takeaways.</p>
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>
+\\\`\\\`\\\`
+
+### Finding Card
+
+Each finding is a bordered card with a colored left accent matching its priority. Contains title with badge, body text, and source links.
+
+\\\`\\\`\\\`html
+<tr>
+  <td style="padding:12px 32px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB; border-left:4px solid PRIORITY_COLOR; border-radius:6px; overflow:hidden;">
+      <tr>
+        <td style="padding:16px 20px;">
+          <h3 style="margin:0 0 8px; font-size:15px; font-weight:700; color:#1A1A2E;">
+            BADGE_HERE Finding Title
+          </h3>
+          <p style="margin:0 0 8px; font-size:14px; color:#374151; line-height:1.7;"><strong>What:</strong> Factual summary of the finding.</p>
+          <p style="margin:0 0 8px; font-size:14px; color:#374151; line-height:1.7;">Extended analysis, context, and implications.</p>
+          <p style="margin:0; font-size:13px; color:#6B7280;">Sources: <a href="URL" style="color:#2563EB; text-decoration:none;">Source 1</a> | <a href="URL" style="color:#2563EB; text-decoration:none;">Source 2</a></p>
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>
+\\\`\\\`\\\`
+
+Replace \\\`PRIORITY_COLOR\\\` with the badge's background color from the table above (e.g. #D97706 for HIGH).
+
+### Priority Badge
+
+Inline pill badge. Place inside headings or before text. Only change background-color and label.
+
+\\\`\\\`\\\`html
+<span style="display:inline-block; padding:2px 10px; border-radius:12px; font-size:11px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase; color:#FFFFFF; background-color:#DC2626; margin-right:6px;">URGENT</span>
+\\\`\\\`\\\`
+
+Quick reference for badge backgrounds:
+- URGENT: background-color:#DC2626
+- HIGH: background-color:#D97706
+- ACT: background-color:#7C3AED
+- MEDIUM: background-color:#2563EB
+- WATCH: background-color:#0891B2
+- LOW: background-color:#059669
+- NOTE: background-color:#6B7280
+
+You can combine priority and action type: e.g. \\\`HIGH\\\` badge followed by \\\`ACT\\\` badge, or a single combined label like \\\`HIGH-ACT\\\`.
+
+### Data Table
+
+For metrics, build status, comparisons. Dark header, alternating row stripes.
+
+\\\`\\\`\\\`html
+<tr>
+  <td style="padding:12px 32px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; border:1px solid #E5E7EB; border-radius:6px; overflow:hidden;">
+      <tr>
+        <th style="background-color:#1A1A2E; color:#FFFFFF; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; padding:10px 16px; text-align:left; border-bottom:1px solid #E5E7EB;">Column A</th>
+        <th style="background-color:#1A1A2E; color:#FFFFFF; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; padding:10px 16px; text-align:left; border-bottom:1px solid #E5E7EB;">Column B</th>
+        <th style="background-color:#1A1A2E; color:#FFFFFF; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; padding:10px 16px; text-align:left; border-bottom:1px solid #E5E7EB;">Column C</th>
+      </tr>
+      <tr>
+        <td style="padding:10px 16px; font-size:13px; color:#374151; border-bottom:1px solid #E5E7EB; background-color:#FFFFFF;">Row 1 data</td>
+        <td style="padding:10px 16px; font-size:13px; color:#374151; border-bottom:1px solid #E5E7EB; background-color:#FFFFFF;">Data</td>
+        <td style="padding:10px 16px; font-size:13px; color:#374151; border-bottom:1px solid #E5E7EB; background-color:#FFFFFF;">Data</td>
+      </tr>
+      <tr>
+        <td style="padding:10px 16px; font-size:13px; color:#374151; border-bottom:1px solid #E5E7EB; background-color:#F9FAFB;">Row 2 data</td>
+        <td style="padding:10px 16px; font-size:13px; color:#374151; border-bottom:1px solid #E5E7EB; background-color:#F9FAFB;">Data</td>
+        <td style="padding:10px 16px; font-size:13px; color:#374151; border-bottom:1px solid #E5E7EB; background-color:#F9FAFB;">Data</td>
+      </tr>
+    </table>
+  </td>
+</tr>
+\\\`\\\`\\\`
+
+Alternate row backgrounds between #FFFFFF and #F9FAFB. For status cells, use inline color:
+- Success/OK: \\\`style="color:#059669; font-weight:700;"\\\`
+- Failure/Error: \\\`style="color:#DC2626; font-weight:700;"\\\`
+
+### Action Items
+
+Group by priority level. Each item has a colored left-border marker.
+
+\\\`\\\`\\\`html
+<tr>
+  <td style="padding:28px 32px 0;">
+    <h2 style="margin:0 0 10px; font-size:18px; font-weight:700; color:#1A1A2E; border-bottom:2px solid #E5E7EB; padding-bottom:8px;">Action Items</h2>
+  </td>
+</tr>
+<tr>
+  <td style="padding:12px 32px 0;">
+    <!-- Priority sub-heading -->
+    <p style="margin:0 0 8px; font-size:13px; font-weight:700; color:#DC2626; text-transform:uppercase; letter-spacing:0.5px;">Urgent</p>
+    <!-- Action item -->
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px;">
+      <tr>
+        <td width="4" style="background-color:#DC2626; border-radius:2px;"></td>
+        <td style="padding:8px 0 8px 14px; font-size:14px; color:#374151; line-height:1.6;">Action item description here</td>
+      </tr>
+    </table>
+    <!-- Next priority group -->
+    <p style="margin:16px 0 8px; font-size:13px; font-weight:700; color:#D97706; text-transform:uppercase; letter-spacing:0.5px;">High</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px;">
+      <tr>
+        <td width="4" style="background-color:#D97706; border-radius:2px;"></td>
+        <td style="padding:8px 0 8px 14px; font-size:14px; color:#374151; line-height:1.6;">Another action item</td>
+      </tr>
+    </table>
+  </td>
+</tr>
+\\\`\\\`\\\`
+
+Priority sub-heading colors: Urgent=#DC2626, High=#D97706, Medium=#2563EB, Low=#059669. Only include groups that have items.
+
+### Report Footer
+
+Dark bar matching header. Agent attribution and timestamp.
+
+\\\`\\\`\\\`html
+<tr>
+  <td style="background-color:#1A1A2E; padding:20px 32px; margin-top:16px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="border-top:2px solid #C9A227; padding-top:14px;">
+          <p style="margin:0; font-size:12px; color:#9CA3AF;">Agent Name &middot; Organization Name &middot; 2026-04-08 morning sweep</p>
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>
+\\\`\\\`\\\`
+
+## Composition Example
+
+A complete report assembling all components. Use as a starting template — adjust sections and finding count to fit your report.
+
+\\\`\\\`\\\`html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Market Intelligence Scan</title>
+</head>
+<body style="margin:0; padding:0; background-color:#F4F4F5; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; color:#374151; font-size:14px; line-height:1.7;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F4F4F5;">
+<tr><td align="center" style="padding:24px 16px;">
+  <table role="presentation" width="680" cellpadding="0" cellspacing="0" style="max-width:680px; width:100%; background-color:#FFFFFF; border-radius:8px; overflow:hidden; border:1px solid #E5E7EB;">
+
+    <!-- HEADER -->
+    <tr>
+      <td style="background-color:#1A1A2E; padding:28px 32px 20px; border-bottom:3px solid #C9A227;">
+        <h1 style="margin:0; font-size:22px; font-weight:700; color:#FFFFFF;">Market Intelligence Scan</h1>
+        <p style="margin:6px 0 0; font-size:13px; color:#9CA3AF;">2026-04-08 &middot; Morning sweep &middot; Monetization &middot; Distribution &middot; Crowdfunding</p>
+      </td>
+    </tr>
+
+    <!-- SUMMARY -->
+    <tr>
+      <td style="padding:28px 32px 0;">
+        <h2 style="margin:0 0 10px; font-size:18px; font-weight:700; color:#1A1A2E; border-bottom:2px solid #E5E7EB; padding-bottom:8px;">Summary</h2>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:12px 32px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="background-color:#FFFBEB; border-left:4px solid #C9A227; padding:16px 20px; border-radius:0 6px 6px 0;">
+              <p style="margin:0; font-size:14px; color:#374151; line-height:1.7;">Two critical decisions this week: tariff ruling impacts board game costs, and settlement approval could unlock 14% revenue upside on cosmetics IAP. Crowdfunding benchmarks continue to validate IP licensing ceiling at $15M+.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+
+    <!-- FINDINGS -->
+    <tr>
+      <td style="padding:28px 32px 0;">
+        <h2 style="margin:0 0 10px; font-size:18px; font-weight:700; color:#1A1A2E; border-bottom:2px solid #E5E7EB; padding-bottom:8px;">Findings</h2>
+      </td>
+    </tr>
+
+    <!-- Finding 1 -->
+    <tr>
+      <td style="padding:12px 32px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB; border-left:4px solid #D97706; border-radius:6px; overflow:hidden;">
+          <tr>
+            <td style="padding:16px 20px;">
+              <h3 style="margin:0 0 8px; font-size:15px; font-weight:700; color:#1A1A2E;">
+                <span style="display:inline-block; padding:2px 10px; border-radius:12px; font-size:11px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase; color:#FFFFFF; background-color:#D97706; margin-right:6px;">HIGH</span>
+                <span style="display:inline-block; padding:2px 10px; border-radius:12px; font-size:11px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase; color:#FFFFFF; background-color:#0891B2; margin-right:6px;">WATCH</span>
+                Tariff Oral Arguments — April 10
+              </h3>
+              <p style="margin:0 0 8px; font-size:14px; color:#374151; line-height:1.7;"><strong>What:</strong> 24-state AGs challenging Section 122 10% tariff. Three-judge panel oral arguments April 10. If invalidated, operative rate drops from 25% to 15%.</p>
+              <p style="margin:0 0 8px; font-size:14px; color:#374151; line-height:1.7;">This represents ~$0.60-0.80 per unit savings on board games from China. Finance model already accounts for both outcomes.</p>
+              <p style="margin:0; font-size:13px; color:#6B7280;">Sources: <a href="https://example.com/cit-ruling" style="color:#2563EB; text-decoration:none;">CIT Docket</a> | <a href="https://example.com/tariff-analysis" style="color:#2563EB; text-decoration:none;">Trade Analysis</a></p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+
+    <!-- Finding 2 -->
+    <tr>
+      <td style="padding:12px 32px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB; border-left:4px solid #7C3AED; border-radius:6px; overflow:hidden;">
+          <tr>
+            <td style="padding:16px 20px;">
+              <h3 style="margin:0 0 8px; font-size:15px; font-weight:700; color:#1A1A2E;">
+                <span style="display:inline-block; padding:2px 10px; border-radius:12px; font-size:11px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase; color:#FFFFFF; background-color:#7C3AED; margin-right:6px;">ACT</span>
+                Update Co-Production Brief for Gamefound
+              </h3>
+              <p style="margin:0 0 8px; font-size:14px; color:#374151; line-height:1.7;"><strong>What:</strong> CMON returning H2 2026, crowdfunding platform must be Gamefound. Brass: Pittsburgh $4.77M validates Gamefound at $4M+ scale.</p>
+              <p style="margin:0 0 8px; font-size:14px; color:#374151; line-height:1.7;">End-of-April deadline. CMON going-concern status creates urgency — company may pivot to IP sales if H2 crowdfunding fails.</p>
+              <p style="margin:0; font-size:13px; color:#6B7280;">Sources: <a href="https://example.com/cmon" style="color:#2563EB; text-decoration:none;">CMON Announcement</a> | <a href="https://example.com/brass" style="color:#2563EB; text-decoration:none;">Gamefound – Brass</a></p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+
+    <!-- DATA TABLE EXAMPLE -->
+    <tr>
+      <td style="padding:28px 32px 0;">
+        <h2 style="margin:0 0 10px; font-size:18px; font-weight:700; color:#1A1A2E; border-bottom:2px solid #E5E7EB; padding-bottom:8px;">Crowdfunding Benchmarks</h2>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:12px 32px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; border:1px solid #E5E7EB; border-radius:6px; overflow:hidden;">
+          <tr>
+            <th style="background-color:#1A1A2E; color:#FFFFFF; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; padding:10px 16px; text-align:left;">Campaign</th>
+            <th style="background-color:#1A1A2E; color:#FFFFFF; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; padding:10px 16px; text-align:left;">Platform</th>
+            <th style="background-color:#1A1A2E; color:#FFFFFF; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; padding:10px 16px; text-align:right;">Raised</th>
+          </tr>
+          <tr>
+            <td style="padding:10px 16px; font-size:13px; color:#374151; border-bottom:1px solid #E5E7EB; background-color:#FFFFFF;">Cyberpunk TCG</td>
+            <td style="padding:10px 16px; font-size:13px; color:#374151; border-bottom:1px solid #E5E7EB; background-color:#FFFFFF;">Kickstarter</td>
+            <td style="padding:10px 16px; font-size:13px; color:#374151; border-bottom:1px solid #E5E7EB; background-color:#FFFFFF; text-align:right;">$15.4M</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 16px; font-size:13px; color:#374151; border-bottom:1px solid #E5E7EB; background-color:#F9FAFB;">Brass: Pittsburgh</td>
+            <td style="padding:10px 16px; font-size:13px; color:#374151; border-bottom:1px solid #E5E7EB; background-color:#F9FAFB;">Gamefound</td>
+            <td style="padding:10px 16px; font-size:13px; color:#374151; border-bottom:1px solid #E5E7EB; background-color:#F9FAFB; text-align:right;">$4.77M</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 16px; font-size:13px; color:#374151; background-color:#FFFFFF;">STS Downfall</td>
+            <td style="padding:10px 16px; font-size:13px; color:#374151; background-color:#FFFFFF;">Kickstarter</td>
+            <td style="padding:10px 16px; font-size:13px; color:#374151; background-color:#FFFFFF; text-align:right;">$4.96M</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+
+    <!-- ACTION ITEMS -->
+    <tr>
+      <td style="padding:28px 32px 0;">
+        <h2 style="margin:0 0 10px; font-size:18px; font-weight:700; color:#1A1A2E; border-bottom:2px solid #E5E7EB; padding-bottom:8px;">Action Items</h2>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:12px 32px 0;">
+        <p style="margin:0 0 8px; font-size:13px; font-weight:700; color:#DC2626; text-transform:uppercase; letter-spacing:0.5px;">Urgent</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px;">
+          <tr>
+            <td width="4" style="background-color:#DC2626; border-radius:2px;"></td>
+            <td style="padding:8px 0 8px 14px; font-size:14px; color:#374151; line-height:1.6;">Finalize co-production brief for Gamefound. Coordinate with BM Pacman + Finance. Deadline: end of April.</td>
+          </tr>
+        </table>
+        <p style="margin:16px 0 8px; font-size:13px; font-weight:700; color:#D97706; text-transform:uppercase; letter-spacing:0.5px;">High</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px;">
+          <tr>
+            <td width="4" style="background-color:#D97706; border-radius:2px;"></td>
+            <td style="padding:8px 0 8px 14px; font-size:14px; color:#374151; line-height:1.6;">CIT Section 122 oral arguments April 10. Flag outcome to Finance immediately.</td>
+          </tr>
+        </table>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px;">
+          <tr>
+            <td width="4" style="background-color:#D97706; border-radius:2px;"></td>
+            <td style="padding:8px 0 8px 14px; font-size:14px; color:#374151; line-height:1.6;">Google Play settlement approval April 9. Defer mobile IAP design until ruling.</td>
+          </tr>
+        </table>
+        <p style="margin:16px 0 8px; font-size:13px; font-weight:700; color:#2563EB; text-transform:uppercase; letter-spacing:0.5px;">Medium</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px;">
+          <tr>
+            <td width="4" style="background-color:#2563EB; border-radius:2px;"></td>
+            <td style="padding:8px 0 8px 14px; font-size:14px; color:#374151; line-height:1.6;">Monitor Cyberpunk TCG final close April 17-18. Flag if exceeds $16M.</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+
+    <!-- SPACER BEFORE FOOTER -->
+    <tr><td style="padding:16px 0 0;"></td></tr>
+
+    <!-- FOOTER -->
+    <tr>
+      <td style="background-color:#1A1A2E; padding:20px 32px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="border-top:2px solid #C9A227; padding-top:14px;">
+              <p style="margin:0; font-size:12px; color:#9CA3AF;">Monetization Agent &middot; Enigma Entertainment &middot; 2026-04-08 morning sweep</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+
+  </table>
+</td></tr>
+</table>
+</body>
+</html>
+\\\`\\\`\\\`
+
+## Email Client Notes
+
+- All styles are inlined on elements. Do not rely on a \\\`<style>\\\` block alone — many email clients strip it.
+- Use \\\`<table role="presentation">\\\` for layout, not \\\`<div>\\\`. Outlook requires table-based structure.
+- Apply \\\`background-color\\\` on \\\`<td>\\\`, not \\\`<tr>\\\` (Outlook ignores it on rows).
+- No flexbox, no grid, no CSS variables, no \\\`calc()\\\`.
+- Use absolute URLs for any images. Always include \\\`alt\\\` text.
+- The 680px max-width is standard — do not change it per report.
+- Keep the font stack, color palette, and badge styles exactly as defined above.`;

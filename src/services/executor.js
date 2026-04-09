@@ -8,7 +8,7 @@ import { decrypt } from '../utils/crypto.js';
 import { isRemoteConnected, executeRemote, cancelRemote } from './remote-agents.js';
 import { registry } from '../backends/index.js';
 import { generateIntegrationSkills } from './integrations.js';
-import { CODING_CONVENTIONS_SKILL, intelligenceScanSkill } from './builtin-skills.js';
+import { CODING_CONVENTIONS_SKILL, intelligenceScanSkill, HTML_REPORT_SKILL } from './builtin-skills.js';
 import { evaluateReadiness } from './readiness.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -445,6 +445,11 @@ curl -s -X POST ${API_BASE}/api/mail/send \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
   -d '{"to":"${notifyTo || 'recipient@example.com'}","subject":"Subject","body":"Message body"}'
 Optional fields: cc, bcc, html, in_reply_to (message ID for threading)`);
+
+      // HTML report component library (injected alongside mail)
+      writeSkill('nebula-html-report',
+        'HTML email report component library. Reference when composing any HTML email — provides the standard Nebula layout, color palette, priority badges, finding cards, data tables, and a full composition example. Use these components instead of inventing your own styles.',
+        HTML_REPORT_SKILL);
     }
 
     // Peer agents awareness
