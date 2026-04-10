@@ -452,7 +452,7 @@ export interface RuntimeInfo {
   models: ModelInfo[];
   auth: { ok: boolean; error?: string };
   install: { command: string; url: string };
-  authGuide: { command: string; description: string };
+  authGuide: { command: string; dockerCommand?: string | null; description: string };
 }
 export interface RuntimesResponse {
   runtimes: RuntimeInfo[];
