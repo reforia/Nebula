@@ -22,7 +22,8 @@ cd "$(dirname "$0")/.."
 echo "[2/4] Packaging..."
 tar czf /tmp/nebula-deploy.tar.gz \
   --exclude=node_modules --exclude=data --exclude=.git --exclude=.gitea \
-  --exclude=frontend/node_modules --exclude=.claude --exclude='*.tsbuildinfo' --exclude=.env .
+  --exclude=frontend/node_modules --exclude=.claude --exclude='*.tsbuildinfo' \
+  --exclude=.env --exclude=docker-compose.override.yml .
 
 echo "[3/4] Uploading to server..."
 scp -O -P $NAS_PORT /tmp/nebula-deploy.tar.gz $NAS:$NAS_DIR/nebula-deploy.tar.gz
