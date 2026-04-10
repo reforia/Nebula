@@ -101,7 +101,7 @@ export default function ChatView({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-3 sm:px-5 py-2.5 border-b border-nebula-border bg-nebula-surface/80 backdrop-blur-sm">
+      <header className="relative z-20 flex items-center justify-between px-3 sm:px-5 py-2.5 border-b border-nebula-border bg-nebula-surface/80 backdrop-blur-sm">
         <div className="flex items-center gap-2.5 min-w-0">
           <button onClick={onOpenSidebar} className="md:hidden p-1.5 -ml-1 text-nebula-muted hover:text-nebula-text rounded-lg hover:bg-nebula-hover">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
