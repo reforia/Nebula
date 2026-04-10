@@ -15,6 +15,28 @@ NAS_PORT="${NAS_SSH_PORT:-22}"
 NAS_DIR="${NAS_DEPLOY_DIR:-/opt/nebula}"
 DOCKER="${DOCKER_BIN:-docker}"
 
+echo "[0/4] Pre-flight checks..."
+# Verify .env exists on target with encryption key
+ENV_CHECK=$(ssh -p $NAS_PORT $NAS "
+  if [ ! -f $NAS_DIR/.env ]; then
+    echo 'MISSING_ENV'
+  elif ! grep -q 'NEBULA_ENCRYPTION_KEY=.\+' $NAS_DIR/.env 2>/dev/null; then
+    echo 'MISSING_KEY'
+  else
+    echo 'OK'
+  fi
+")
+if [ "$ENV_CHECK" = "MISSING_ENV" ]; then
+  echo "ERROR: No .env file at $NAS_DIR/.env on remote server." >&2
+  echo "  Copy .env.example and configure it first:" >&2
+  echo "  scp -O -P $NAS_PORT .env.example $NAS:$NAS_DIR/.env" >&2
+  exit 1
+elif [ "$ENV_CHECK" = "MISSING_KEY" ]; then
+  echo "ERROR: NEBULA_ENCRYPTION_KEY is not set in $NAS_DIR/.env" >&2
+  echo "  Generate one: openssl rand -hex 32" >&2
+  exit 1
+fi
+
 echo "[1/4] Building frontend..."
 cd "$(dirname "$0")/.."
 (cd frontend && npm run build) 2>&1 | tail -3
