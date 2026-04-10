@@ -275,7 +275,7 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
                               {rt.auth.ok ? 'Authenticated' : rt.auth.error || 'Auth needed'}
                             </span>
                             {!rt.auth.ok && rt.authGuide.command && (
-                              <span className="text-nebula-muted"> — run: <code className="bg-nebula-bg px-1 rounded font-mono">{rt.authGuide.command}</code></span>
+                              <span className="text-nebula-muted"> — run: <code className="bg-nebula-bg px-1 rounded font-mono select-all">{rt.authGuide.dockerCommand || rt.authGuide.command}</code></span>
                             )}
                           </p>
                         </div>
@@ -286,7 +286,7 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
                           {rt.authGuide.command && (
                             <>
                               <p className="text-[11px] text-nebula-muted mt-1">Then authenticate:</p>
-                              <code className="block text-[11px] text-nebula-text px-1.5 py-0.5 rounded font-mono select-all">{rt.authGuide.command}</code>
+                              <code className="block text-[11px] text-nebula-text px-1.5 py-0.5 rounded font-mono select-all">{rt.authGuide.dockerCommand || rt.authGuide.command}</code>
                             </>
                           )}
                         </div>

@@ -12,6 +12,10 @@ import { registry } from '../backends/index.js';
 
 const router = Router();
 
+const isDocker = (() => {
+  try { return fs.existsSync('/.dockerenv'); } catch { return false; }
+})();
+
 // GET /api/settings — org-scoped settings
 router.get('/settings', (req, res) => {
   const orgKeys = [
@@ -119,6 +123,9 @@ router.get('/runtimes', (req, res) => {
       },
       authGuide: {
         command: adapter.authCommand,
+        dockerCommand: isDocker && adapter.authCommand
+          ? `docker exec -it nebula ${adapter.authCommand}`
+          : null,
         description: adapter.authDescription,
       },
     };

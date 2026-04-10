@@ -653,7 +653,7 @@ export default function GlobalSettings({ onClose, onLogout, onRefresh }: Props) 
                           </span>
                           {!rt.auth.ok && rt.authGuide.command && (
                             <span className="text-nebula-muted">
-                              — run: <code className="bg-nebula-bg px-1 rounded font-mono">{rt.authGuide.command}</code>
+                              — run: <code className="bg-nebula-bg px-1 rounded font-mono select-all">{rt.authGuide.dockerCommand || rt.authGuide.command}</code>
                             </span>
                           )}
                         </div>
