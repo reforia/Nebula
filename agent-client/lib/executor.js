@@ -104,7 +104,8 @@ function _spawnOpenCode(binary, msg, workDir, signal) {
     // Write MCP config as opencode.json
     _writeMcpConfig(workDir, msg.mcp_servers, 'opencode');
 
-    // Map model ID to provider/model format
+    // Map bare model names to OpenCode's provider/model format.
+    // Models with slashes are passed through — user specifies the full OpenCode model ID.
     let ocModel = msg.model || 'claude-sonnet-4-6';
     if (!ocModel.includes('/')) {
       if (ocModel.startsWith('claude-')) ocModel = `anthropic/${ocModel}`;

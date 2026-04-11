@@ -644,6 +644,9 @@ fn parse_ndjson(output: &str) -> Vec<serde_json::Value> {
 }
 
 /// Map model ID to OpenCode's provider/model format.
+/// Only maps bare model names (no slash) to common providers.
+/// Models with slashes are passed through as-is — the user should specify
+/// the full OpenCode model ID (e.g. `openrouter/deepseek/deepseek-v3.2`).
 fn map_model_for_opencode(model: &str) -> String {
     if model.contains('/') { return model.to_string(); }
     if model.starts_with("claude-") {
@@ -686,10 +689,14 @@ mod tests {
 
     #[test]
     fn test_map_model_for_opencode() {
+        // Bare model names get provider prefix
         assert_eq!(map_model_for_opencode("claude-sonnet-4-6"), "anthropic/claude-sonnet-4-6");
         assert_eq!(map_model_for_opencode("gpt-5.4"), "openai/gpt-5.4");
         assert_eq!(map_model_for_opencode("o3-mini"), "openai/o3-mini");
-        assert_eq!(map_model_for_opencode("anthropic/claude-3.5"), "anthropic/claude-3.5");
         assert_eq!(map_model_for_opencode("some-model"), "some-model");
+        // Models with slashes pass through — user specifies full OpenCode model ID
+        assert_eq!(map_model_for_opencode("openrouter/deepseek/deepseek-v3.2"), "openrouter/deepseek/deepseek-v3.2");
+        assert_eq!(map_model_for_opencode("anthropic/claude-3.5"), "anthropic/claude-3.5");
+        assert_eq!(map_model_for_opencode("deepseek/deepseek-v3.2"), "deepseek/deepseek-v3.2");
     }
 }
