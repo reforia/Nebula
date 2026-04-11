@@ -324,6 +324,49 @@ function _spawn(binary, args, cwd, timeoutMs, signal, parseExit) {
   });
 }
 
+// Embedded MCP HTTP bridge — written to disk for CC CLI to spawn as stdio MCP server
+const MCP_HTTP_BRIDGE_JS = `#!/usr/bin/env node
+const url = process.argv[2];
+if (!url) { process.stderr.write('[mcp-bridge] Usage: mcp-http-bridge.js <url> [headers-json]\\n'); process.exit(1); }
+let extraHeaders = {};
+if (process.argv[3]) { try { extraHeaders = JSON.parse(process.argv[3]); } catch {} }
+let sessionId = null, buf = '', queue = Promise.resolve();
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  buf += chunk; let nl;
+  while ((nl = buf.indexOf('\\n')) !== -1) {
+    const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+    if (line) queue = queue.then(() => forward(line));
+  }
+});
+async function forward(line) {
+  let msg; try { msg = JSON.parse(line); } catch { return; }
+  const isNotification = msg.id === undefined;
+  const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream', ...extraHeaders };
+  if (sessionId) headers['mcp-session-id'] = sessionId;
+  let res;
+  try { res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(msg) }); }
+  catch (err) {
+    if (!isNotification) process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: 'Bridge fetch failed: ' + err.message } }) + '\\n');
+    return;
+  }
+  const sid = res.headers.get('mcp-session-id'); if (sid) sessionId = sid;
+  if (res.status === 202) return;
+  const ct = res.headers.get('content-type') || '', body = await res.text();
+  if (ct.includes('text/event-stream')) { for (const sse of body.split('\\n')) { if (sse.startsWith('data: ')) process.stdout.write(sse.slice(6) + '\\n'); } }
+  else { process.stdout.write(body + '\\n'); }
+}
+process.stderr.write('[mcp-bridge] Bridging stdio <-> ' + url + '\\n');
+`;
+
+function _ensureMcpBridge(workDir) {
+  const bridgePath = path.join(workDir, '.mcp-http-bridge.js');
+  if (!fs.existsSync(bridgePath)) {
+    fs.writeFileSync(bridgePath, MCP_HTTP_BRIDGE_JS);
+  }
+  return bridgePath;
+}
+
 function _writeMcpConfig(workDir, mcpServers, format) {
   if (!mcpServers || mcpServers.length === 0) return;
 
@@ -337,9 +380,19 @@ function _writeMcpConfig(workDir, mcpServers, format) {
           args: server.config.args || [],
           env: server.config.env || {},
         };
+      } else {
+        // Bridge HTTP/SSE MCP servers through a stdio proxy for CC CLI
+        const bridgePath = _ensureMcpBridge(workDir);
+        const bridgeArgs = [bridgePath, server.config.url];
+        if (server.config.headers && Object.keys(server.config.headers).length > 0) {
+          bridgeArgs.push(JSON.stringify(server.config.headers));
+        }
+        mcpConfig.mcpServers[server.name] = {
+          type: 'stdio',
+          command: 'node',
+          args: bridgeArgs,
+        };
       }
-      // Skip HTTP/SSE MCP servers for Claude Code — CC CLI can't connect
-      // to them directly and the stdio bridge isn't available on remote.
     }
     fs.writeFileSync(path.join(workDir, '.nebula-mcp-config.json'), JSON.stringify(mcpConfig, null, 2));
   } else if (format === 'opencode') {

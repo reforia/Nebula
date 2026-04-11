@@ -9,6 +9,42 @@ use tokio::sync::Mutex;
 
 use crate::{AppState, find_claude_binary, find_opencode_binary, find_codex_binary, find_gemini_binary, load_proxy_url};
 
+/// Embedded MCP stdio-to-HTTP bridge script. Written to disk at runtime for CC CLI
+/// to spawn as a stdio MCP server that proxies to HTTP MCP servers.
+const MCP_HTTP_BRIDGE_JS: &str = r#"#!/usr/bin/env node
+const url = process.argv[2];
+if (!url) { process.stderr.write('[mcp-bridge] Usage: mcp-http-bridge.js <url> [headers-json]\n'); process.exit(1); }
+let extraHeaders = {};
+if (process.argv[3]) { try { extraHeaders = JSON.parse(process.argv[3]); } catch {} }
+let sessionId = null, buf = '', queue = Promise.resolve();
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  buf += chunk; let nl;
+  while ((nl = buf.indexOf('\n')) !== -1) {
+    const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+    if (line) queue = queue.then(() => forward(line));
+  }
+});
+async function forward(line) {
+  let msg; try { msg = JSON.parse(line); } catch { return; }
+  const isNotification = msg.id === undefined;
+  const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream', ...extraHeaders };
+  if (sessionId) headers['mcp-session-id'] = sessionId;
+  let res;
+  try { res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(msg) }); }
+  catch (err) {
+    if (!isNotification) process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: 'Bridge fetch failed: ' + err.message } }) + '\n');
+    return;
+  }
+  const sid = res.headers.get('mcp-session-id'); if (sid) sessionId = sid;
+  if (res.status === 202) return;
+  const ct = res.headers.get('content-type') || '', body = await res.text();
+  if (ct.includes('text/event-stream')) { for (const sse of body.split('\n')) { if (sse.startsWith('data: ')) process.stdout.write(sse.slice(6) + '\n'); } }
+  else { process.stdout.write(body + '\n'); }
+}
+process.stderr.write('[mcp-bridge] Bridging stdio <-> ' + url + '\n');
+"#;
+
 pub struct SpawnParams {
     pub runtime: String,
     pub prompt: String,
@@ -592,6 +628,16 @@ fn inline_skills(system_prompt: &str, skills: &[serde_json::Value]) -> String {
     format!("{}\n\n## Skills\n\n{}", system_prompt, contents.join("\n\n---\n\n"))
 }
 
+/// Write the MCP HTTP bridge script to disk for use by CC CLI.
+/// CC CLI can't connect to HTTP MCP servers directly, so we bridge via stdio.
+fn ensure_mcp_bridge(work_dir: &Path) -> String {
+    let bridge_path = work_dir.join(".mcp-http-bridge.js");
+    if !bridge_path.exists() {
+        fs::write(&bridge_path, MCP_HTTP_BRIDGE_JS).ok();
+    }
+    bridge_path.to_string_lossy().to_string()
+}
+
 /// Write MCP config in the format expected by the given runtime.
 fn write_mcp_config(work_dir: &Path, mcp_servers: &[serde_json::Value], format: &str) {
     if mcp_servers.is_empty() { return; }
@@ -599,6 +645,7 @@ fn write_mcp_config(work_dir: &Path, mcp_servers: &[serde_json::Value], format: 
     match format {
         "claude" => {
             let mut config = serde_json::json!({"mcpServers": {}});
+            let bridge_path = ensure_mcp_bridge(work_dir);
             for server in mcp_servers {
                 let name = server["name"].as_str().unwrap_or("unknown");
                 let transport = server["transport"].as_str().unwrap_or("stdio");
@@ -609,9 +656,27 @@ fn write_mcp_config(work_dir: &Path, mcp_servers: &[serde_json::Value], format: 
                         "args": server["config"]["args"],
                         "env": server["config"]["env"],
                     });
+                } else {
+                    // Bridge HTTP/SSE MCP servers through a stdio proxy
+                    let url = server["config"]["url"].as_str().unwrap_or("");
+                    let mut bridge_args = vec![
+                        serde_json::Value::String(bridge_path.clone()),
+                        serde_json::Value::String(url.to_string()),
+                    ];
+                    if server["config"]["headers"].is_object() {
+                        let headers = server["config"]["headers"].as_object().unwrap();
+                        if !headers.is_empty() {
+                            bridge_args.push(serde_json::Value::String(
+                                serde_json::to_string(&server["config"]["headers"]).unwrap_or_default()
+                            ));
+                        }
+                    }
+                    config["mcpServers"][name] = serde_json::json!({
+                        "type": "stdio",
+                        "command": "node",
+                        "args": bridge_args,
+                    });
                 }
-                // Skip HTTP/SSE MCP servers for Claude Code — CC CLI can't connect
-                // to them directly and the stdio bridge isn't available on remote.
             }
             fs::write(work_dir.join(".nebula-mcp-config.json"),
                 serde_json::to_string_pretty(&config).unwrap_or_default()).ok();
