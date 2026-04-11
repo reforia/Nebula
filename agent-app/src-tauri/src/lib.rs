@@ -1,17 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::process::Stdio;
 use std::sync::Arc;
 use tauri::{
     AppHandle, Emitter, Manager,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
 };
-use tokio::io::AsyncReadExt;
-use tokio::process::Command;
 use tokio::sync::Mutex;
 
+mod runtime;
 mod ws_client;
 #[cfg(test)]
 mod tests;
@@ -192,277 +190,12 @@ fn detect_runtimes() -> Vec<(String, String)> {
     detect_available_runtimes()
 }
 
-/// Spawn CC and return JSON result
-pub async fn spawn_cc(
-    prompt: &str,
-    system_prompt: &str,
-    session_id: &str,
-    session_initialized: bool,
-    allowed_tools: &str,
-    model: &str,
-    max_turns: u32,
-    timeout_ms: u64,
-    skills: &[serde_json::Value],
-    mcp_servers: &[serde_json::Value],
-    app: &AppHandle,
-) -> Result<serde_json::Value, String> {
-    let work_dir = dirs::home_dir()
-        .unwrap_or_default()
-        .join(".nebula-agents")
-        .join(session_id);
-    fs::create_dir_all(&work_dir).ok();
-
-    // Write skill files from server (org-wide + agent-specific + built-in)
-    for skill in skills {
-        if let (Some(name), Some(content)) = (skill["name"].as_str(), skill["content"].as_str()) {
-            let skill_dir = work_dir.join(".claude").join("skills").join(name);
-            fs::create_dir_all(&skill_dir).ok();
-            fs::write(skill_dir.join("SKILL.md"), content).ok();
-        }
-    }
-
-    // Write MCP config from server
-    let mcp_config_path = work_dir.join(".nebula-mcp-config.json");
-    if !mcp_servers.is_empty() {
-        let mut mcp_config = serde_json::json!({"mcpServers": {}});
-        for server in mcp_servers {
-            let name = server["name"].as_str().unwrap_or("unknown");
-            let transport = server["transport"].as_str().unwrap_or("stdio");
-            if transport == "stdio" {
-                mcp_config["mcpServers"][name] = serde_json::json!({
-                    "command": server["config"]["command"],
-                    "args": server["config"]["args"],
-                    "env": server["config"]["env"],
-                });
-            } else {
-                let mut entry = serde_json::json!({"url": server["config"]["url"]});
-                if server["config"]["headers"].is_object() {
-                    entry["headers"] = server["config"]["headers"].clone();
-                }
-                mcp_config["mcpServers"][name] = entry;
-            }
-        }
-        fs::write(&mcp_config_path, serde_json::to_string_pretty(&mcp_config).unwrap_or_default()).ok();
-    }
-
-    let mut args = vec![
-        "-p".to_string(),
-        prompt.to_string(),
-        "--allowedTools".to_string(),
-        allowed_tools.to_string(),
-        "--model".to_string(),
-        model.to_string(),
-        "--max-turns".to_string(),
-        max_turns.to_string(),
-        "--output-format".to_string(),
-        "json".to_string(),
-        "--dangerously-skip-permissions".to_string(),
-    ];
-
-    // MCP config flag
-    if mcp_config_path.exists() {
-        args.push("--mcp-config".to_string());
-        args.push(mcp_config_path.to_string_lossy().to_string());
-    }
-
-    if !system_prompt.is_empty() {
-        args.push("--append-system-prompt".to_string());
-        args.push(system_prompt.to_string());
-    }
-
-    if session_initialized {
-        args.push("--resume".to_string());
-        args.push(session_id.to_string());
-    } else {
-        args.push("--session-id".to_string());
-        args.push(session_id.to_string());
-    }
-
-    // Clear stale session lock from previous runs
-    let lock_path = dirs::home_dir()
-        .unwrap_or_default()
-        .join(".claude")
-        .join("tasks")
-        .join(session_id)
-        .join(".lock");
-    let _ = fs::remove_file(&lock_path);
-
-    app.emit("agent-log", "Spawning CC...").ok();
-
-    let home = dirs::home_dir().unwrap_or_default();
-
-    // Find claude binary — GUI apps don't inherit shell PATH
-    let claude_bin = find_claude_binary(&home)
-        .ok_or_else(|| "Claude Code not found. Install it: npm install -g @anthropic-ai/claude-code".to_string())?;
-
-    app.emit("agent-log", format!("CC: {}", claude_bin)).ok();
-
-    // Build shell command for macOS (inherits keychain), direct exec on Windows
-    let use_shell = !cfg!(windows);
-
-    let shell_cmd = if use_shell {
-        std::iter::once(format!("\"{}\"", claude_bin))
-            .chain(args.iter().map(|a| {
-                if a.contains(' ') || a.contains('"') || a.contains('\'') || a.contains('\n') {
-                    format!("\"{}\"", a.replace('\\', "\\\\").replace('"', "\\\""))
-                } else {
-                    a.clone()
-                }
-            }))
-            .collect::<Vec<_>>()
-            .join(" ")
-    } else {
-        String::new()
-    };
-
-    // Log full command + env for debugging
-    let debug_log = home.join(".nebula-agent-cc.log");
-    let proxy_vars = format!(
-        "HTTP_PROXY={}\nHTTPS_PROXY={}\nhttp_proxy={}\nhttps_proxy={}",
-        std::env::var("HTTP_PROXY").unwrap_or_default(),
-        std::env::var("HTTPS_PROXY").unwrap_or_default(),
-        std::env::var("http_proxy").unwrap_or_default(),
-        std::env::var("https_proxy").unwrap_or_default(),
-    );
-    std::fs::write(&debug_log, format!(
-        "CC: {}\nHOME: {}\nCWD: {}\n{}\nArgs: {:?}\nShell cmd len: {}\n---\n",
-        claude_bin, home.display(), work_dir.display(), proxy_vars, &args, shell_cmd.len()
-    )).ok();
-
-    // Read proxy config from saved settings or defaults
-    let proxy_url = load_proxy_url();
-
-    let mut cmd = if use_shell {
-        let mut c = Command::new("sh");
-        c.arg("-c").arg(&shell_cmd);
-        c
-    } else {
-        let mut c = Command::new(&claude_bin);
-        c.args(&args);
-        c
-    };
-    cmd.current_dir(&work_dir)
-        .env("HOME", &home)
-        .env("USERPROFILE", &home)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    // GUI apps don't inherit shell env vars — set proxy explicitly if configured
-    if !proxy_url.is_empty() {
-        cmd.env("HTTP_PROXY", &proxy_url)
-            .env("HTTPS_PROXY", &proxy_url)
-            .env("http_proxy", &proxy_url)
-            .env("https_proxy", &proxy_url);
-    }
-
-    let mut child = cmd.spawn()
-        .map_err(|e| format!("Failed to spawn claude: {}", e))?;
-
-    let timeout = tokio::time::Duration::from_millis(timeout_ms);
-
-    let result = tokio::time::timeout(timeout, async {
-        let mut stdout_handle = child.stdout.take().unwrap();
-        let mut stderr_handle = child.stderr.take().unwrap();
-        let mut output = String::new();
-        let mut err_output = String::new();
-        stdout_handle.read_to_string(&mut output).await.ok();
-        stderr_handle.read_to_string(&mut err_output).await.ok();
-
-        // Race process completion against cancellation
-        let status = tokio::select! {
-            s = child.wait() => s.map_err(|e| e.to_string())?,
-            _ = async {
-                // Wait for cancel token if we have one in app state
-                let token = {
-                    let s = app.state::<Arc<Mutex<AppState>>>();
-                    let guard = s.lock().await;
-                    guard.cancel_token.clone()
-                };
-                if let Some(t) = token { t.cancelled().await; } else { std::future::pending::<()>().await; }
-            } => {
-                child.kill().await.ok();
-                return Err("Cancelled by user".to_string());
-            }
-        };
-
-        // Dump raw output for debugging
-        {
-            use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(
-                dirs::home_dir().unwrap_or_default().join(".nebula-agent-cc.log")
-            ) {
-                writeln!(f, "EXIT: {}\nSTDOUT[{}]: {}\nSTDERR[{}]: {}\n---",
-                    status.code().unwrap_or(-1),
-                    output.len(), &output[..output.len().min(1000)],
-                    err_output.len(), &err_output[..err_output.len().min(500)],
-                ).ok();
-            }
-        }
-
-        if !status.success() {
-            let code = status.code().unwrap_or(-1);
-            if code == 2 {
-                return Err("Claude Code auth expired — run 'claude login'".to_string());
-            }
-            // Try to extract error from JSON output
-            if let Some(start) = output.find('{') {
-                if let Some(end) = output.rfind('}') {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&output[start..=end]) {
-                        if let Some(err_msg) = json.get("result").and_then(|v| v.as_str()) {
-                            return Err(format!("CC error: {}", err_msg));
-                        }
-                        if let Some(err_msg) = json.get("error").and_then(|v| v.as_str()) {
-                            return Err(format!("CC error: {}", err_msg));
-                        }
-                    }
-                }
-            }
-            let err_msg = format!("CC exit code {}: stdout={} stderr={}", code, &output[..output.len().min(500)], &err_output[..err_output.len().min(500)]);
-            // Append to debug log
-            use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(home.join(".nebula-agent-cc.log")) {
-                writeln!(f, "ERROR: {}\n---", &err_msg).ok();
-            }
-            return Err(err_msg);
-        }
-
-        // Find JSON in output
-        let json_start = output.find('{').ok_or("No JSON in output")?;
-        let json_end = output.rfind('}').ok_or("No JSON end in output")?;
-        let json_str = &output[json_start..=json_end];
-        let result: serde_json::Value =
-            serde_json::from_str(json_str).map_err(|e| format!("JSON parse: {}", e))?;
-
-        // Log full result for debugging
-        use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(home.join(".nebula-agent-cc.log")) {
-            writeln!(f, "RESULT: is_error={} result={}\n---",
-                result.get("is_error").unwrap_or(&serde_json::Value::Null),
-                result.get("result").and_then(|v| v.as_str()).unwrap_or("(none)").chars().take(200).collect::<String>(),
-            ).ok();
-        }
-
-        // Check if CC reported an error in the result
-        if result.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false) {
-            let err_msg = result.get("result").and_then(|v| v.as_str()).unwrap_or("Unknown CC error");
-            return Err(format!("CC error: {}", err_msg));
-        }
-
-        Ok(result)
-    })
-    .await
-    .map_err(|_| "CC execution timed out".to_string())??;
-
-    app.emit("agent-log", "CC completed").ok();
-    Ok(result)
-}
-
-fn load_proxy_url() -> String {
+pub(crate) fn load_proxy_url() -> String {
     load_config().proxy
 }
 
 /// Find a CLI binary by checking candidate paths then falling back to PATH.
-fn find_cli_binary(bin_name: &str, candidates: &[PathBuf]) -> Option<String> {
+pub(crate) fn find_cli_binary(bin_name: &str, candidates: &[PathBuf]) -> Option<String> {
     for p in candidates {
         if p.exists() {
             return Some(p.to_string_lossy().to_string());
@@ -486,7 +219,7 @@ fn find_cli_binary(bin_name: &str, candidates: &[PathBuf]) -> Option<String> {
     None
 }
 
-fn find_claude_binary(home: &std::path::Path) -> Option<String> {
+pub(crate) fn find_claude_binary(home: &std::path::Path) -> Option<String> {
     let candidates = vec![
         home.join(".local/bin/claude"),
         home.join(".npm-global/bin/claude"),
@@ -500,7 +233,7 @@ fn find_claude_binary(home: &std::path::Path) -> Option<String> {
     find_cli_binary("claude", &candidates)
 }
 
-fn find_opencode_binary(home: &std::path::Path) -> Option<String> {
+pub(crate) fn find_opencode_binary(home: &std::path::Path) -> Option<String> {
     let candidates = vec![
         PathBuf::from("/usr/local/bin/opencode"),
         home.join(".npm-global/bin/opencode"),
@@ -511,7 +244,7 @@ fn find_opencode_binary(home: &std::path::Path) -> Option<String> {
     find_cli_binary("opencode", &candidates)
 }
 
-fn find_codex_binary(home: &std::path::Path) -> Option<String> {
+pub(crate) fn find_codex_binary(home: &std::path::Path) -> Option<String> {
     let candidates = vec![
         home.join(".local/bin/codex"),
         PathBuf::from("/usr/local/bin/codex"),
@@ -521,7 +254,7 @@ fn find_codex_binary(home: &std::path::Path) -> Option<String> {
     find_cli_binary("codex", &candidates)
 }
 
-fn find_gemini_binary(home: &std::path::Path) -> Option<String> {
+pub(crate) fn find_gemini_binary(home: &std::path::Path) -> Option<String> {
     let candidates = vec![
         home.join(".local/bin/gemini"),
         PathBuf::from("/usr/local/bin/gemini"),

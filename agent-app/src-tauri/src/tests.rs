@@ -33,6 +33,7 @@ mod tests {
             server: "http://test:8090".into(),
             agent_id: "test-id-123".into(),
             token: "secret-token".into(),
+            proxy: String::new(),
         };
         save_config(&config);
         let loaded = load_config();
@@ -78,6 +79,7 @@ mod tests {
             server: "http://nas:8090".into(),
             agent_id: "id-1".into(),
             token: "tok-1".into(),
+            proxy: String::new(),
         };
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: AgentConfig = serde_json::from_str(&json).unwrap();

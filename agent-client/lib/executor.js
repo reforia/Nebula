@@ -311,6 +311,7 @@ function _writeMcpConfig(workDir, mcpServers, format) {
     for (const server of mcpServers) {
       if (server.transport === 'stdio') {
         mcpConfig.mcpServers[server.name] = {
+          type: 'stdio',
           command: server.config.command,
           args: server.config.args || [],
           env: server.config.env || {},

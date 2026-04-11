@@ -1,4 +1,5 @@
-use crate::{spawn_cc, AppState};
+use crate::AppState;
+use crate::runtime::{spawn_runtime, SpawnParams};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
 use std::sync::Arc;
@@ -196,41 +197,30 @@ async fn connect_and_run(
                                     continue;
                                 }
 
-                                // TODO: Dispatch to OpenCode when runtime == "opencode" (requires Rust executor)
-                                // For now, only claude-cli is supported in the Tauri app.
-                                // Use the Node.js agent-client for multi-runtime support.
-                                if runtime != "claude-cli" {
-                                    let err_msg = format!("Tauri agent app only supports claude-cli execution. Got: \"{}\". Use the Node.js agent-client for {} support.", runtime, runtime);
-                                    app.emit("agent-log", format!("Error: {}", &err_msg)).ok();
-                                    let response = json!({"type": "error", "request_id": request_id, "error": err_msg});
-                                    if ws.send(Message::Text(response.to_string())).await.is_err() {
-                                        return ConnectionResult::Disconnected("Send error failed".into());
-                                    }
-                                    continue;
-                                }
+                                let params = SpawnParams {
+                                    runtime: runtime.clone(),
+                                    prompt: parsed["prompt"].as_str().unwrap_or("").to_string(),
+                                    system_prompt: parsed["system_prompt"].as_str().unwrap_or("").to_string(),
+                                    session_id: parsed["session_id"].as_str().unwrap_or("").to_string(),
+                                    session_initialized: parsed["session_initialized"].as_bool().unwrap_or(false)
+                                        || parsed["session_initialized"].as_i64().unwrap_or(0) != 0,
+                                    allowed_tools: parsed["allowed_tools"].as_str().unwrap_or("Read,Grep,Glob,WebFetch,Bash").to_string(),
+                                    model: parsed["model"].as_str().unwrap_or("claude-sonnet-4-6").to_string(),
+                                    max_turns: parsed["max_turns"].as_u64().unwrap_or(10) as u32,
+                                    timeout_ms: parsed["timeout_ms"].as_u64().unwrap_or(600000),
+                                    skills: parsed["skills"].as_array()
+                                        .map(|a| a.to_vec()).unwrap_or_default(),
+                                    mcp_servers: parsed["mcp_servers"].as_array()
+                                        .map(|a| a.to_vec()).unwrap_or_default(),
+                                };
 
-                                let prompt = parsed["prompt"].as_str().unwrap_or("").to_string();
-                                let system_prompt = parsed["system_prompt"].as_str().unwrap_or("").to_string();
-                                let session_id = parsed["session_id"].as_str().unwrap_or("").to_string();
-                                let session_initialized = parsed["session_initialized"].as_bool().unwrap_or(false)
-                                    || parsed["session_initialized"].as_i64().unwrap_or(0) != 0;
-                                let allowed_tools = parsed["allowed_tools"].as_str().unwrap_or("Read,Grep,Glob,WebFetch,Bash").to_string();
-                                let model = parsed["model"].as_str().unwrap_or("claude-sonnet-4-6").to_string();
-                                let max_turns = parsed["max_turns"].as_u64().unwrap_or(10) as u32;
-                                let timeout_ms = parsed["timeout_ms"].as_u64().unwrap_or(600000);
-
-                                app.emit("agent-log", format!("Executing {}...", &request_id[..8.min(request_id.len())])).ok();
+                                app.emit("agent-log", format!("Executing {} [{}]...", &request_id[..8.min(request_id.len())], runtime)).ok();
 
                                 {
                                     let mut s = state.lock().await;
                                     s.state.last_activity = chrono_now();
                                     app.emit("agent-state", &s.state).ok();
                                 }
-
-                                let skills = parsed["skills"].as_array()
-                                    .map(|a| a.to_vec()).unwrap_or_default();
-                                let mcp_servers = parsed["mcp_servers"].as_array()
-                                    .map(|a| a.to_vec()).unwrap_or_default();
 
                                 // Set up per-execution cancel token
                                 let exec_token = tokio_util::sync::CancellationToken::new();
@@ -239,11 +229,7 @@ async fn connect_and_run(
                                     s.cancel_token = Some(exec_token.clone());
                                 }
 
-                                let result = spawn_cc(
-                                    &prompt, &system_prompt, &session_id,
-                                    session_initialized, &allowed_tools, &model,
-                                    max_turns, timeout_ms, &skills, &mcp_servers, app,
-                                ).await;
+                                let result = spawn_runtime(&params, app).await;
 
                                 // Clear cancel token
                                 {
