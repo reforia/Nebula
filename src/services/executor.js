@@ -260,6 +260,17 @@ class AgentExecutor extends EventEmitter {
       sessionWasReset = true;
     }
 
+    // Runtime change detection — different CLIs have incompatible session IDs
+    // (e.g. Claude Code vs OpenCode). Reset session when runtime changes.
+    if (conversation.session_initialized && conversation.session_runtime && conversation.session_runtime !== runtime) {
+      console.log(`[executor] Runtime changed for conversation ${conversation.id}: "${conversation.session_runtime}" → "${runtime}", resetting session`);
+      const newSessionId = generateId();
+      run('UPDATE conversations SET session_initialized = 0, session_id = ?, session_runtime = NULL, updated_at = datetime(\'now\') WHERE id = ?',
+        [newSessionId, conversation.id]);
+      conversation = { ...conversation, session_initialized: 0, session_id: newSessionId, session_runtime: null };
+      sessionWasReset = true;
+    }
+
     // --- Assemble system prompt and skills (Nebula concerns) ---
 
     const systemParts = [];
@@ -1243,11 +1254,11 @@ Help the user complete the setup. Ask about your role if not set. Once you have 
         // Capture it from the parsed output and store for future --resume calls.
         const cliSessionId = result.cli_session_id;
         if (cliSessionId) {
-          run('UPDATE conversations SET session_initialized = 1, session_id = ?, session_branch = ?, updated_at = datetime(\'now\') WHERE id = ?',
-            [cliSessionId, resolvedBranch, conversation.id]);
+          run('UPDATE conversations SET session_initialized = 1, session_id = ?, session_branch = ?, session_runtime = ?, updated_at = datetime(\'now\') WHERE id = ?',
+            [cliSessionId, resolvedBranch, runtime, conversation.id]);
         } else {
-          run('UPDATE conversations SET session_initialized = 1, session_branch = ?, updated_at = datetime(\'now\') WHERE id = ?',
-            [resolvedBranch, conversation.id]);
+          run('UPDATE conversations SET session_initialized = 1, session_branch = ?, session_runtime = ?, updated_at = datetime(\'now\') WHERE id = ?',
+            [resolvedBranch, runtime, conversation.id]);
         }
       }
 
