@@ -199,26 +199,46 @@ async fn spawn_opencode(
     let mut cost: f64 = 0.0;
 
     for event in &events {
-        if event.get("type").and_then(|v| v.as_str()) == Some("message")
-            && event.get("role").and_then(|v| v.as_str()) == Some("assistant")
-        {
-            if let Some(s) = event.get("content").and_then(|v| v.as_str()) {
-                result_text = s.to_string();
-            } else if let Some(arr) = event.get("content").and_then(|v| v.as_array()) {
-                for b in arr {
-                    if b.get("type").and_then(|v| v.as_str()) == Some("text") {
-                        if let Some(t) = b.get("text").and_then(|v| v.as_str()) {
-                            result_text = t.to_string();
+        let etype = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        match etype {
+            "text" => {
+                // OpenCode format: {"type":"text", "part":{"text":"..."}}
+                if let Some(t) = event.get("part").and_then(|p| p.get("text")).and_then(|v| v.as_str()) {
+                    result_text = t.to_string();
+                }
+                // Also check top-level content (older format)
+                if let Some(c) = event.get("content").and_then(|v| v.as_str()) {
+                    if result_text.is_empty() { result_text = c.to_string(); }
+                }
+            }
+            "message" if event.get("role").and_then(|v| v.as_str()) == Some("assistant") => {
+                if let Some(s) = event.get("content").and_then(|v| v.as_str()) {
+                    result_text = s.to_string();
+                } else if let Some(arr) = event.get("content").and_then(|v| v.as_array()) {
+                    for b in arr {
+                        if b.get("type").and_then(|v| v.as_str()) == Some("text") {
+                            if let Some(t) = b.get("text").and_then(|v| v.as_str()) {
+                                result_text = t.to_string();
+                            }
                         }
                     }
                 }
             }
-        }
-        if event.get("type").and_then(|v| v.as_str()) == Some("text") {
-            if let Some(c) = event.get("content").and_then(|v| v.as_str()) {
-                result_text.push_str(c);
+            "step_finish" => {
+                // OpenCode format: {"type":"step_finish", "part":{"tokens":{...}, "cost":0.003}}
+                if let Some(part) = event.get("part") {
+                    if let Some(tokens) = part.get("tokens") {
+                        input_tokens += tokens.get("input").and_then(|v| v.as_u64()).unwrap_or(0);
+                        output_tokens += tokens.get("output").and_then(|v| v.as_u64()).unwrap_or(0);
+                    }
+                    if let Some(c) = part.get("cost").and_then(|v| v.as_f64()) {
+                        cost = c;
+                    }
+                }
             }
+            _ => {}
         }
+        // Also check top-level usage/cost (generic format)
         if let Some(usage) = event.get("usage") {
             input_tokens += usage.get("input_tokens").or(usage.get("prompt_tokens"))
                 .and_then(|v| v.as_u64()).unwrap_or(0);
@@ -405,8 +425,8 @@ async fn spawn_gemini(
             }
         }
         if let Some(u) = event.get("usage").or(event.get("stats")) {
-            input_tokens += u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-            output_tokens += u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            input_tokens += u.get("input_tokens").or(u.get("input")).and_then(|v| v.as_u64()).unwrap_or(0);
+            output_tokens += u.get("output_tokens").or(u.get("output")).and_then(|v| v.as_u64()).unwrap_or(0);
         }
     }
 

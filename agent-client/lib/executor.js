@@ -136,13 +136,24 @@ function _spawnOpenCode(binary, msg, workDir, signal) {
       for (const line of lines) {
         try {
           const event = JSON.parse(line);
+          if (event.type === 'text') {
+            // OpenCode format: part.text
+            if (event.part?.text) resultText = event.part.text;
+            else if (event.content) resultText = event.content;
+          }
           if (event.type === 'message' && event.role === 'assistant') {
             if (typeof event.content === 'string') resultText = event.content;
             else if (Array.isArray(event.content)) {
               for (const b of event.content) { if (b.type === 'text') resultText = b.text; }
             }
           }
-          if (event.type === 'text' && event.content) resultText += event.content;
+          if (event.type === 'step_finish' && event.part) {
+            if (event.part.tokens) {
+              usage.input_tokens += event.part.tokens.input || 0;
+              usage.output_tokens += event.part.tokens.output || 0;
+            }
+            if (event.part.cost !== undefined) cost = event.part.cost;
+          }
           if (event.usage) {
             usage.input_tokens += event.usage.input_tokens || event.usage.prompt_tokens || 0;
             usage.output_tokens += event.usage.output_tokens || event.usage.completion_tokens || 0;
@@ -257,8 +268,8 @@ function _spawnGemini(binary, msg, workDir, signal) {
           }
           if (event.usage || event.stats) {
             const u = event.usage || event.stats;
-            usage.input_tokens += u.input_tokens || 0;
-            usage.output_tokens += u.output_tokens || 0;
+            usage.input_tokens += u.input_tokens || u.input || 0;
+            usage.output_tokens += u.output_tokens || u.output || 0;
           }
         } catch {}
       }
