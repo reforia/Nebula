@@ -159,6 +159,9 @@ async fn spawn_opencode(
     // Map model ID to provider/model format
     let oc_model = map_model_for_opencode(&params.model);
 
+    // Use local session tracking — server's session_initialized doesn't reflect remote state
+    let locally_init = is_locally_initialized(&work_dir, &params.session_id);
+
     let mut args = vec![
         "run".to_string(),
         "--format".to_string(),
@@ -167,7 +170,7 @@ async fn spawn_opencode(
         oc_model,
     ];
 
-    if params.session_initialized {
+    if locally_init {
         args.push("--session".to_string());
         args.push(params.session_id.clone());
     } else {
@@ -231,6 +234,8 @@ async fn spawn_opencode(
         result_text = output.stdout.trim().to_string();
     }
 
+    mark_locally_initialized(&work_dir, &params.session_id);
+
     Ok(serde_json::json!({
         "result": result_text,
         "duration_ms": start_time.elapsed().as_millis() as u64,
@@ -265,7 +270,8 @@ async fn spawn_codex(
         args.push(combined_prompt);
     }
 
-    if params.session_initialized {
+    let locally_init = is_locally_initialized(&work_dir, &params.session_id);
+    if locally_init {
         args.push("resume".to_string());
         args.push(params.session_id.clone());
     } else {
@@ -309,6 +315,8 @@ async fn spawn_codex(
         result_text = output.stdout.trim().to_string();
     }
 
+    mark_locally_initialized(&work_dir, &params.session_id);
+
     Ok(serde_json::json!({
         "result": result_text,
         "duration_ms": start_time.elapsed().as_millis() as u64,
@@ -345,7 +353,8 @@ async fn spawn_gemini(
         system_file.to_string_lossy().to_string(),
     ];
 
-    if params.session_initialized {
+    let locally_init = is_locally_initialized(&work_dir, &params.session_id);
+    if locally_init {
         args.push("--resume".to_string());
         args.push(params.session_id.clone());
     }
@@ -404,6 +413,8 @@ async fn spawn_gemini(
     if result_text.is_empty() {
         result_text = output.stdout.trim().to_string();
     }
+
+    mark_locally_initialized(&work_dir, &params.session_id);
 
     Ok(serde_json::json!({
         "result": result_text,
@@ -610,6 +621,18 @@ fn write_mcp_config(work_dir: &Path, mcp_servers: &[serde_json::Value], format: 
         }
         _ => {}
     }
+}
+
+/// Check if a session has been initialized locally on this machine.
+/// The server's session_initialized flag reflects server-side state, but on a remote
+/// machine the CLI session may not exist yet. We track local state with a marker file.
+fn is_locally_initialized(work_dir: &Path, session_id: &str) -> bool {
+    work_dir.join(format!(".session-{}", session_id)).exists()
+}
+
+/// Mark a session as locally initialized after successful execution.
+fn mark_locally_initialized(work_dir: &Path, session_id: &str) {
+    fs::write(work_dir.join(format!(".session-{}", session_id)), "").ok();
 }
 
 /// Parse NDJSON output into a vec of JSON events.

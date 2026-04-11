@@ -113,7 +113,8 @@ function _spawnOpenCode(binary, msg, workDir, signal) {
 
     const args = ['run', '--format', 'json', '--model', ocModel];
 
-    if (msg.session_initialized) {
+    const locallyInit = _isLocallyInitialized(workDir, msg.session_id);
+    if (locallyInit) {
       args.push('--session', msg.session_id);
     } else {
       args.push('--title', msg.session_id);
@@ -150,6 +151,7 @@ function _spawnOpenCode(binary, msg, workDir, signal) {
       }
 
       if (!resultText) resultText = clean.trim();
+      _markLocallyInitialized(workDir, msg.session_id);
       return { result: resultText, duration_ms: Date.now() - startTime, total_cost_usd: cost, usage };
     }).then(resolve, reject);
   });
@@ -174,7 +176,8 @@ function _spawnCodex(binary, msg, workDir, signal) {
     ];
 
     if (systemPrompt) args.push('--append-system-prompt', systemPrompt);
-    if (msg.session_initialized) {
+    const codexLocalInit = _isLocallyInitialized(workDir, msg.session_id);
+    if (codexLocalInit) {
       args.push('resume', msg.session_id);
     } else {
       args.push('--ephemeral');
@@ -199,6 +202,7 @@ function _spawnCodex(binary, msg, workDir, signal) {
         } catch {}
       }
       if (!resultText) resultText = clean.trim();
+      _markLocallyInitialized(workDir, msg.session_id);
       return { result: resultText, duration_ms: Date.now() - startTime, total_cost_usd: 0, usage: {} };
     }).then(resolve, reject);
   });
@@ -229,7 +233,7 @@ function _spawnGemini(binary, msg, workDir, signal) {
       '--system-instruction', systemFile,
     ];
 
-    if (msg.session_initialized) args.push('--resume', msg.session_id);
+    if (_isLocallyInitialized(workDir, msg.session_id)) args.push('--resume', msg.session_id);
     args.push('-p', msg.prompt);
 
     _spawn(binary, args, workDir, msg.timeout_ms, signal, (exitCode, clean) => {
@@ -258,6 +262,7 @@ function _spawnGemini(binary, msg, workDir, signal) {
         } catch {}
       }
       if (!resultText) resultText = clean.trim();
+      _markLocallyInitialized(workDir, msg.session_id);
       return { result: resultText, duration_ms: Date.now() - startTime, total_cost_usd: 0, usage };
     }).then(resolve, reject);
   });
@@ -301,6 +306,17 @@ function _spawn(binary, args, cwd, timeoutMs, signal, parseExit) {
       }
     });
   });
+}
+
+// Track whether a CLI session has been initialized locally on this machine.
+// The server's session_initialized flag reflects server-side state which may not
+// exist on the remote machine yet.
+function _isLocallyInitialized(workDir, sessionId) {
+  return fs.existsSync(path.join(workDir, `.session-${sessionId}`));
+}
+
+function _markLocallyInitialized(workDir, sessionId) {
+  fs.writeFileSync(path.join(workDir, `.session-${sessionId}`), '');
 }
 
 function _writeMcpConfig(workDir, mcpServers, format) {
