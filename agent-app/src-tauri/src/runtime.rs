@@ -159,9 +159,6 @@ async fn spawn_opencode(
     // Map model ID to provider/model format
     let oc_model = map_model_for_opencode(&params.model);
 
-    // Use local session tracking — server's session_initialized doesn't reflect remote state
-    let locally_init = is_locally_initialized(&work_dir, &params.session_id);
-
     let mut args = vec![
         "run".to_string(),
         "--format".to_string(),
@@ -170,7 +167,10 @@ async fn spawn_opencode(
         oc_model,
     ];
 
-    if locally_init {
+    // Server tracks the CLI-generated session ID after first run.
+    // First run: session_id is a Nebula UUID → --title (new session)
+    // Subsequent runs: session_id is the CLI-generated ID → --session (resume)
+    if params.session_initialized {
         args.push("--session".to_string());
         args.push(params.session_id.clone());
     } else {
@@ -197,8 +197,15 @@ async fn spawn_opencode(
     let mut input_tokens: u64 = 0;
     let mut output_tokens: u64 = 0;
     let mut cost: f64 = 0.0;
+    let mut cli_session_id: Option<String> = None;
 
     for event in &events {
+        // Capture CLI-generated session ID from any event
+        if cli_session_id.is_none() {
+            if let Some(sid) = event.get("sessionID").or(event.get("session_id")).and_then(|v| v.as_str()) {
+                cli_session_id = Some(sid.to_string());
+            }
+        }
         let etype = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
         match etype {
             "text" => {
@@ -254,14 +261,16 @@ async fn spawn_opencode(
         result_text = output.stdout.trim().to_string();
     }
 
-    mark_locally_initialized(&work_dir, &params.session_id);
-
-    Ok(serde_json::json!({
+    let mut result = serde_json::json!({
         "result": result_text,
         "duration_ms": start_time.elapsed().as_millis() as u64,
         "total_cost_usd": cost,
         "usage": { "input_tokens": input_tokens, "output_tokens": output_tokens },
-    }))
+    });
+    if let Some(sid) = cli_session_id {
+        result["cli_session_id"] = serde_json::Value::String(sid);
+    }
+    Ok(result)
 }
 
 // ---- Codex CLI ----
@@ -290,8 +299,7 @@ async fn spawn_codex(
         args.push(combined_prompt);
     }
 
-    let locally_init = is_locally_initialized(&work_dir, &params.session_id);
-    if locally_init {
+    if params.session_initialized {
         args.push("resume".to_string());
         args.push(params.session_id.clone());
     } else {
@@ -314,8 +322,15 @@ async fn spawn_codex(
     // Parse NDJSON output
     let events = parse_ndjson(&output.stdout);
     let mut result_text = String::new();
+    let mut cli_session_id: Option<String> = None;
 
     for event in &events {
+        // Capture CLI-generated session ID
+        if cli_session_id.is_none() {
+            if let Some(sid) = event.get("thread_id").or(event.get("session_id")).and_then(|v| v.as_str()) {
+                cli_session_id = Some(sid.to_string());
+            }
+        }
         let etype = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
         if etype.starts_with("item.") {
             if let Some(content) = event.get("item").and_then(|v| v.get("content")).and_then(|v| v.as_array()) {
@@ -335,14 +350,16 @@ async fn spawn_codex(
         result_text = output.stdout.trim().to_string();
     }
 
-    mark_locally_initialized(&work_dir, &params.session_id);
-
-    Ok(serde_json::json!({
+    let mut result = serde_json::json!({
         "result": result_text,
         "duration_ms": start_time.elapsed().as_millis() as u64,
         "total_cost_usd": 0,
         "usage": {},
-    }))
+    });
+    if let Some(sid) = cli_session_id {
+        result["cli_session_id"] = serde_json::Value::String(sid);
+    }
+    Ok(result)
 }
 
 // ---- Gemini CLI ----
@@ -373,8 +390,7 @@ async fn spawn_gemini(
         system_file.to_string_lossy().to_string(),
     ];
 
-    let locally_init = is_locally_initialized(&work_dir, &params.session_id);
-    if locally_init {
+    if params.session_initialized {
         args.push("--resume".to_string());
         args.push(params.session_id.clone());
     }
@@ -403,8 +419,15 @@ async fn spawn_gemini(
     let mut result_text = String::new();
     let mut input_tokens: u64 = 0;
     let mut output_tokens: u64 = 0;
+    let mut cli_session_id: Option<String> = None;
 
     for event in &events {
+        // Capture CLI-generated session ID
+        if cli_session_id.is_none() {
+            if let Some(sid) = event.get("session_id").and_then(|v| v.as_str()) {
+                cli_session_id = Some(sid.to_string());
+            }
+        }
         let etype = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
         if etype == "result" {
             if let Some(r) = event.get("response").and_then(|v| v.as_str()) {
@@ -434,14 +457,16 @@ async fn spawn_gemini(
         result_text = output.stdout.trim().to_string();
     }
 
-    mark_locally_initialized(&work_dir, &params.session_id);
-
-    Ok(serde_json::json!({
+    let mut result = serde_json::json!({
         "result": result_text,
         "duration_ms": start_time.elapsed().as_millis() as u64,
         "total_cost_usd": 0,
         "usage": { "input_tokens": input_tokens, "output_tokens": output_tokens },
-    }))
+    });
+    if let Some(sid) = cli_session_id {
+        result["cli_session_id"] = serde_json::Value::String(sid);
+    }
+    Ok(result)
 }
 
 // ---- Shared helpers ----
@@ -641,18 +666,6 @@ fn write_mcp_config(work_dir: &Path, mcp_servers: &[serde_json::Value], format: 
         }
         _ => {}
     }
-}
-
-/// Check if a session has been initialized locally on this machine.
-/// The server's session_initialized flag reflects server-side state, but on a remote
-/// machine the CLI session may not exist yet. We track local state with a marker file.
-fn is_locally_initialized(work_dir: &Path, session_id: &str) -> bool {
-    work_dir.join(format!(".session-{}", session_id)).exists()
-}
-
-/// Mark a session as locally initialized after successful execution.
-fn mark_locally_initialized(work_dir: &Path, session_id: &str) {
-    fs::write(work_dir.join(format!(".session-{}", session_id)), "").ok();
 }
 
 /// Parse NDJSON output into a vec of JSON events.

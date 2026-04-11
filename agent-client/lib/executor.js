@@ -114,8 +114,7 @@ function _spawnOpenCode(binary, msg, workDir, signal) {
 
     const args = ['run', '--format', 'json', '--model', ocModel];
 
-    const locallyInit = _isLocallyInitialized(workDir, msg.session_id);
-    if (locallyInit) {
+    if (msg.session_initialized) {
       args.push('--session', msg.session_id);
     } else {
       args.push('--title', msg.session_id);
@@ -132,12 +131,15 @@ function _spawnOpenCode(binary, msg, workDir, signal) {
       let resultText = '';
       let usage = { input_tokens: 0, output_tokens: 0 };
       let cost = 0;
+      let cli_session_id = null;
 
       for (const line of lines) {
         try {
           const event = JSON.parse(line);
+          if (!cli_session_id && (event.sessionID || event.session_id)) {
+            cli_session_id = event.sessionID || event.session_id;
+          }
           if (event.type === 'text') {
-            // OpenCode format: part.text
             if (event.part?.text) resultText = event.part.text;
             else if (event.content) resultText = event.content;
           }
@@ -163,8 +165,7 @@ function _spawnOpenCode(binary, msg, workDir, signal) {
       }
 
       if (!resultText) resultText = clean.trim();
-      _markLocallyInitialized(workDir, msg.session_id);
-      return { result: resultText, duration_ms: Date.now() - startTime, total_cost_usd: cost, usage };
+      return { result: resultText, duration_ms: Date.now() - startTime, total_cost_usd: cost, usage, cli_session_id };
     }).then(resolve, reject);
   });
 }
@@ -188,8 +189,7 @@ function _spawnCodex(binary, msg, workDir, signal) {
     ];
 
     if (systemPrompt) args.push('--append-system-prompt', systemPrompt);
-    const codexLocalInit = _isLocallyInitialized(workDir, msg.session_id);
-    if (codexLocalInit) {
+    if (msg.session_initialized) {
       args.push('resume', msg.session_id);
     } else {
       args.push('--ephemeral');
@@ -203,9 +203,13 @@ function _spawnCodex(binary, msg, workDir, signal) {
       }
       const lines = clean.split('\n').filter(l => l.trim().startsWith('{'));
       let resultText = '';
+      let cli_session_id = null;
       for (const line of lines) {
         try {
           const event = JSON.parse(line);
+          if (!cli_session_id && (event.thread_id || event.session_id)) {
+            cli_session_id = event.thread_id || event.session_id;
+          }
           if (event.type?.startsWith('item.') && event.item?.content) {
             for (const b of (Array.isArray(event.item.content) ? event.item.content : [])) {
               if (b.type === 'text' || b.type === 'output_text') resultText = b.text || b.content || resultText;
@@ -214,8 +218,7 @@ function _spawnCodex(binary, msg, workDir, signal) {
         } catch {}
       }
       if (!resultText) resultText = clean.trim();
-      _markLocallyInitialized(workDir, msg.session_id);
-      return { result: resultText, duration_ms: Date.now() - startTime, total_cost_usd: 0, usage: {} };
+      return { result: resultText, duration_ms: Date.now() - startTime, total_cost_usd: 0, usage: {}, cli_session_id };
     }).then(resolve, reject);
   });
 }
@@ -245,7 +248,7 @@ function _spawnGemini(binary, msg, workDir, signal) {
       '--system-instruction', systemFile,
     ];
 
-    if (_isLocallyInitialized(workDir, msg.session_id)) args.push('--resume', msg.session_id);
+    if (msg.session_initialized) args.push('--resume', msg.session_id);
     args.push('-p', msg.prompt);
 
     _spawn(binary, args, workDir, msg.timeout_ms, signal, (exitCode, clean) => {
@@ -256,9 +259,11 @@ function _spawnGemini(binary, msg, workDir, signal) {
       const lines = clean.split('\n').filter(l => l.trim().startsWith('{'));
       let resultText = '';
       let usage = { input_tokens: 0, output_tokens: 0 };
+      let cli_session_id = null;
       for (const line of lines) {
         try {
           const event = JSON.parse(line);
+          if (!cli_session_id && event.session_id) cli_session_id = event.session_id;
           if (event.type === 'result' && event.response) resultText = event.response;
           if (event.type === 'message' && event.role === 'assistant') {
             if (typeof event.content === 'string') resultText = event.content;
@@ -274,8 +279,7 @@ function _spawnGemini(binary, msg, workDir, signal) {
         } catch {}
       }
       if (!resultText) resultText = clean.trim();
-      _markLocallyInitialized(workDir, msg.session_id);
-      return { result: resultText, duration_ms: Date.now() - startTime, total_cost_usd: 0, usage };
+      return { result: resultText, duration_ms: Date.now() - startTime, total_cost_usd: 0, usage, cli_session_id };
     }).then(resolve, reject);
   });
 }
@@ -318,17 +322,6 @@ function _spawn(binary, args, cwd, timeoutMs, signal, parseExit) {
       }
     });
   });
-}
-
-// Track whether a CLI session has been initialized locally on this machine.
-// The server's session_initialized flag reflects server-side state which may not
-// exist on the remote machine yet.
-function _isLocallyInitialized(workDir, sessionId) {
-  return fs.existsSync(path.join(workDir, `.session-${sessionId}`));
-}
-
-function _markLocallyInitialized(workDir, sessionId) {
-  fs.writeFileSync(path.join(workDir, `.session-${sessionId}`), '');
 }
 
 function _writeMcpConfig(workDir, mcpServers, format) {
