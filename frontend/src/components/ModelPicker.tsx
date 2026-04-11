@@ -40,17 +40,24 @@ export default function ModelPicker({ model, onChange, runtimeId, className }: P
     return allModels;
   }, [allModels, runtimeModels, prefixes, runtimeId, rtInfo]);
 
-  // When runtime changes or models become available, auto-select a valid model
+  // When runtime changes, reset to a valid model for the new runtime
   useEffect(() => {
     if (prevRuntimeRef.current !== runtimeId) {
       prevRuntimeRef.current = runtimeId;
       setCustomMode(false);
-    }
-    // Auto-select first model if current selection isn't valid for this runtime
-    if (models.length > 0 && !models.some(m => m.id === model)) {
-      onChange(models[0].id);
+      // Auto-select first model only on runtime change
+      if (models.length > 0 && !models.some(m => m.id === model)) {
+        onChange(models[0].id);
+      }
     }
   }, [runtimeId, models]);
+
+  // If loaded model isn't in the list and runtime accepts custom models, enter custom mode
+  useEffect(() => {
+    if (model && models.length > 0 && !models.some(m => m.id === model) && acceptsAnyModel) {
+      setCustomMode(true);
+    }
+  }, [model, models, acceptsAnyModel]);
 
   const grouped = useMemo(() => {
     const groups: Record<string, typeof models> = {};
