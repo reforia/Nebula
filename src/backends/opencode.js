@@ -37,20 +37,9 @@ export class OpenCodeBackend extends ExecutionBackend {
   };
 
   listModels() {
-    // Common models available via OpenCode — user can also enter custom model IDs
-    return [
-      { id: 'anthropic/claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'anthropic', backend: 'opencode' },
-      { id: 'anthropic/claude-opus-4-6', name: 'Claude Opus 4.6', provider: 'anthropic', backend: 'opencode' },
-      { id: 'openai/gpt-4o', name: 'GPT-4o', provider: 'openai', backend: 'opencode' },
-      { id: 'openai/gpt-4.1', name: 'GPT-4.1', provider: 'openai', backend: 'opencode' },
-      { id: 'openai/gpt-4.1-mini', name: 'GPT-4.1 Mini', provider: 'openai', backend: 'opencode' },
-      { id: 'openai/o3-mini', name: 'o3 Mini', provider: 'openai', backend: 'opencode' },
-      { id: 'openai/o4-mini', name: 'o4 Mini', provider: 'openai', backend: 'opencode' },
-      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'google', backend: 'opencode' },
-      { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'google', backend: 'opencode' },
-      { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1', provider: 'deepseek', backend: 'opencode' },
-      { id: 'deepseek/deepseek-chat-v3', name: 'DeepSeek V3', provider: 'deepseek', backend: 'opencode' },
-    ];
+    // OpenCode manages its own providers and model list — user enters the full
+    // OpenCode model ID (e.g. openrouter/deepseek/deepseek-v3.2) via text input.
+    return [];
   }
 
   /**

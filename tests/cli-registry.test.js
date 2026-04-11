@@ -243,11 +243,9 @@ describe('OpenCodeBackend adapter properties', async () => {
     assert.equal(oc.mapModelId('openai/gpt-4o'), 'openai/gpt-4o');
   });
 
-  it('returns common model list', () => {
+  it('returns empty model list (user enters OpenCode model IDs directly)', () => {
     const models = oc.listModels();
-    assert.ok(models.length > 0);
-    assert.ok(models.some(m => m.id.includes('gpt-4o')));
-    assert.ok(models.some(m => m.id.includes('claude-sonnet')));
+    assert.strictEqual(models.length, 0);
   });
 });
 
