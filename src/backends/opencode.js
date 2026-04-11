@@ -67,7 +67,7 @@ export class OpenCodeBackend extends ExecutionBackend {
 
   buildArgs({ prompt, agent, conversation, options }) {
     const ocModel = this.mapModelId(agent.model);
-    const args = ['run', '--format', 'json', '--model', ocModel];
+    const args = ['run', '--format', 'json', '--model', ocModel, '--dangerously-skip-permissions'];
 
     // Resume existing session; first run gets no session flag — CLI generates its own
     if (conversation.session_initialized && conversation.session_id) {

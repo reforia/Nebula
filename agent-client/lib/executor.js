@@ -112,7 +112,7 @@ function _spawnOpenCode(binary, msg, workDir, signal) {
       else if (ocModel.startsWith('gpt-') || ocModel.startsWith('o3-') || ocModel.startsWith('o4-')) ocModel = `openai/${ocModel}`;
     }
 
-    const args = ['run', '--format', 'json', '--model', ocModel];
+    const args = ['run', '--format', 'json', '--model', ocModel, '--dangerously-skip-permissions'];
 
     if (msg.session_initialized) {
       args.push('--session', msg.session_id);

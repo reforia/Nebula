@@ -201,6 +201,7 @@ async fn spawn_opencode(
         "json".to_string(),
         "--model".to_string(),
         oc_model,
+        "--dangerously-skip-permissions".to_string(),
     ];
 
     // Server tracks the CLI-generated session ID after first run.

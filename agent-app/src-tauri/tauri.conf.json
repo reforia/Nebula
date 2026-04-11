@@ -1,6 +1,6 @@
 {
   "productName": "Nebula Agent",
-  "version": "1.8.4",
+  "version": "1.8.5",
   "identifier": "com.nebula.agent",
   "build": {
     "frontendDist": "../dist",
