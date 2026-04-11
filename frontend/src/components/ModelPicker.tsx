@@ -34,9 +34,11 @@ export default function ModelPicker({ model, onChange, runtimeId, className }: P
     if (prefixes.length > 0) {
       return allModels.filter(m => prefixes.some(p => m.id.startsWith(p)));
     }
-    // Only show all models when no runtime is selected or runtime accepts any model
-    // Don't fall back to allModels when rtInfo is just not loaded yet
+    // Runtime loaded with no models and no prefixes — accepts any model via text input
+    if (runtimeId && rtInfo) return [];
+    // Runtime not loaded yet — show nothing until we know
     if (runtimeId && !rtInfo) return [];
+    // No runtime selected — show all
     return allModels;
   }, [allModels, runtimeModels, prefixes, runtimeId, rtInfo]);
 

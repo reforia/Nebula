@@ -609,13 +609,9 @@ fn write_mcp_config(work_dir: &Path, mcp_servers: &[serde_json::Value], format: 
                         "args": server["config"]["args"],
                         "env": server["config"]["env"],
                     });
-                } else {
-                    let mut entry = serde_json::json!({"url": server["config"]["url"]});
-                    if server["config"]["headers"].is_object() {
-                        entry["headers"] = server["config"]["headers"].clone();
-                    }
-                    config["mcpServers"][name] = entry;
                 }
+                // Skip HTTP/SSE MCP servers for Claude Code — CC CLI can't connect
+                // to them directly and the stdio bridge isn't available on remote.
             }
             fs::write(work_dir.join(".nebula-mcp-config.json"),
                 serde_json::to_string_pretty(&config).unwrap_or_default()).ok();

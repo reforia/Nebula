@@ -337,13 +337,9 @@ function _writeMcpConfig(workDir, mcpServers, format) {
           args: server.config.args || [],
           env: server.config.env || {},
         };
-      } else {
-        mcpConfig.mcpServers[server.name] = {
-          url: server.config.url,
-          ...(server.config.headers && Object.keys(server.config.headers).length > 0
-            ? { headers: server.config.headers } : {}),
-        };
       }
+      // Skip HTTP/SSE MCP servers for Claude Code — CC CLI can't connect
+      // to them directly and the stdio bridge isn't available on remote.
     }
     fs.writeFileSync(path.join(workDir, '.nebula-mcp-config.json'), JSON.stringify(mcpConfig, null, 2));
   } else if (format === 'opencode') {
