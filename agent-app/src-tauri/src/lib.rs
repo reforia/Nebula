@@ -235,7 +235,9 @@ pub(crate) fn find_claude_binary(home: &std::path::Path) -> Option<String> {
 
 pub(crate) fn find_opencode_binary(home: &std::path::Path) -> Option<String> {
     let candidates = vec![
+        home.join(".opencode/bin/opencode"),
         PathBuf::from("/usr/local/bin/opencode"),
+        PathBuf::from("/opt/homebrew/bin/opencode"),
         home.join(".npm-global/bin/opencode"),
         home.join(".bun/bin/opencode"),
         home.join("AppData/Roaming/npm/opencode.cmd"),
