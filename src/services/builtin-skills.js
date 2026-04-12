@@ -461,6 +461,8 @@ export function intelligenceScanSkill({ notifyEmail, orgName }) {
 
 This skill defines how you produce scan reports. Follow it exactly.
 
+**CRITICAL — Email Format Rule:** All email reports MUST use the **nebula-html-report** skill for HTML formatting. Send with the \`html\` field in nebula-mail (not \`body\`). Do NOT invent your own HTML styles, layouts, or color schemes. Read the nebula-html-report skill and use its exact components. This is mandatory for every agent — no exceptions.
+
 ## Phase 0: Context Recovery (MUST run first)
 
 Each scan runs in a fresh session with no memory of previous scans. You MUST restore context before researching.
@@ -539,7 +541,7 @@ This is what the team sees first. It must be self-contained and scannable.
 ### Tier 2: Email Full Report
 Send the full report via the nebula-mail skill to **${notifyEmail || 'the configured notification address'}**.
 
-**Format:** Use the **nebula-html-report** skill for all HTML formatting. Build the email using its standard components.
+**Format:** Read the **nebula-html-report** skill and use its exact HTML components, color palette (#1A1A2E header, #C9A227 gold accent, #F4F4F5 background), and 680px table layout. Pass the assembled HTML as the \`html\` field in the nebula-mail send API — do NOT use the \`body\` field for reports.
 
 **Required sections (in order):**
 1. **Report Header** — your name, scan domain tags, date

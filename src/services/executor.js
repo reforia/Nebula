@@ -323,8 +323,8 @@ class AgentExecutor extends EventEmitter {
       ? existingTasks.map(t => `  - ${t.name} (id: ${t.id}, cron: ${t.cron_expression}, enabled: ${t.enabled})`).join('\n')
       : '  (none)';
     writeSkill('nebula-tasks',
-      'Manage scheduled cron tasks. Use when the user asks to schedule, list, update, or delete recurring tasks.',
-      `Manage your own scheduled tasks via the Nebula API. Use the Bash tool with curl.
+      'Manage scheduled and webhook tasks. Use when the user asks to schedule, list, update, or delete recurring tasks, or create webhook-triggered tasks.',
+      `Manage your own tasks via the Nebula API. Use the Bash tool with curl.
 
 Agent ID: ${agentId}
 API base: ${API_BASE}
@@ -333,10 +333,18 @@ Auth header: Authorization: Bearer ${apiToken}
 Current tasks:
 ${taskList}
 
-## Create
+## Create cron task (runs on schedule)
 curl -s -X POST ${API_BASE}/api/agents/${agentId}/tasks \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
-  -d '{"name":"Name","prompt":"What to do","cron_expression":"0 9 * * *","enabled":true}'
+  -d '{"name":"Name","prompt":"What to do","cron_expression":"0 9 * * *","trigger_type":"cron","enabled":true}'
+
+## Create webhook task (runs when called via HTTP)
+curl -s -X POST ${API_BASE}/api/agents/${agentId}/tasks \\
+  -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
+  -d '{"name":"Name","prompt":"What to do","trigger_type":"webhook","enabled":true}'
+Response includes \`webhook_secret\` — callers must provide it via \`X-Webhook-Secret\` header or \`?secret=\` query param.
+Webhook URL: POST ${API_BASE}/api/webhooks/{task_id}
+The webhook payload is appended to the task prompt as context.
 
 ## List
 curl -s ${API_BASE}/api/agents/${agentId}/tasks -H "Authorization: Bearer ${apiToken}"
@@ -423,9 +431,12 @@ curl -s -X DELETE ${API_BASE}/api/skills/{skill_id} -H "Authorization: Bearer ${
 ## Tips
 - Agent-scoped skills are only visible to you. Org-scoped skills are visible to ALL agents.
 - Skill content = instructions that teach how to perform a task (API calls, file ops, workflows).
-- Secrets are available as environment variables (e.g. $GITEA_TOKEN). Use them in shell commands directly.
-- In skill definitions, use {{SECRET_NAME}} template syntax — Nebula resolves these to env var references at runtime.
-- Created skills automatically appear in your available skill list on next execution.`);
+- Created skills automatically appear in your available skill list on next execution.
+
+## Secrets in Skills
+Two distinct mechanisms — do not mix them:
+- **In Bash commands (current execution):** Secrets are injected as environment variables. Use \`$SECRET_NAME\` directly (e.g. \`curl -H "Authorization: token $GITEA_TOKEN" ...\`).
+- **In skill content (when authoring a skill via the API above):** Use \`{{SECRET_NAME}}\` template syntax. Nebula resolves these to \`$SECRET_NAME\` env var references when the skill is loaded. Do NOT write \`$SECRET_NAME\` in skill content — it won't be resolved.`);
 
     // Mail
     if (getOrgSetting(agentOrgId, 'mail_enabled') === '1' || getOrgSetting(agentOrgId, 'imap_host') || getOrgSetting(agentOrgId, 'smtp_host')) {
@@ -451,11 +462,17 @@ Params: from, to, subject, text, since (date), before (date), unseen (flag), fol
 ## List folders
 curl -s "${API_BASE}/api/mail/folders" -H "Authorization: Bearer ${apiToken}"
 
-## Send email
+## Send email (plain text)
 curl -s -X POST ${API_BASE}/api/mail/send \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
-  -d '{"to":"${notifyTo || 'recipient@example.com'}","subject":"Subject","body":"Message body"}'
-Optional fields: cc, bcc, html, in_reply_to (message ID for threading)`);
+  -d '{"to":"${notifyTo || 'recipient@example.com'}","subject":"Subject","body":"Plain text message"}'
+
+## Send email (HTML — use for all reports)
+curl -s -X POST ${API_BASE}/api/mail/send \\
+  -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
+  -d '{"to":"${notifyTo || 'recipient@example.com'}","subject":"Subject","html":"<html>...</html>"}'
+When sending HTML, use the \`html\` field (not \`body\`). For reports, always use the nebula-html-report skill for formatting.
+Optional fields: cc, bcc, in_reply_to (message ID for threading)`);
 
       // HTML report component library (injected alongside mail)
       writeSkill('nebula-html-report',
@@ -633,9 +650,10 @@ ${deliverableList}
 2. **Before writing any code**: read the design spec and tech spec in vault/, understand the existing codebase structure, review the pass criteria for your deliverable. Do NOT jump straight into implementation.
 3. Update status to "in_progress" when starting work
 4. Work on the deliverable — write code, tests, docs
-5. Push to the assigned feature branch (never push to main)
-6. Create a PR referencing the deliverable
-7. Update status to "done" and @mention the coordinator for review
+5. **Run tests and verify they pass** before proceeding. If the project has a test suite, run it. Do not push code with failing tests.
+6. Push to the assigned feature branch (never push to main)
+7. Create a PR referencing the deliverable
+8. Update status to "done" and @mention the coordinator for review
 
 ## Update Deliverable Status
 curl -s -X PUT ${API_BASE}/api/projects/deliverables/{deliverable_id} \\
@@ -752,9 +770,9 @@ curl -s -X DELETE ${API_BASE}/api/projects/${project.id}/agents/{agent_id} \\
   -H "Authorization: Bearer ${apiToken}"
 
 ## Merge PR
-curl -s -X POST "${API_BASE}/api/projects/${project.id}/pr/{number}/merge?delete_branch=true" \\
+curl -s -X POST "${API_BASE}/api/projects/${project.id}/pr/{number}/merge" \\
   -H "Authorization: Bearer ${apiToken}"
-Add \`?delete_branch=true\` to delete the source branch after merge (recommended to keep branches clean).
+Add \`?delete_branch=true\` query param to delete the source branch after merge (recommended).
 
 ## Dispatching Work
 To assign work to contributors:
@@ -842,7 +860,13 @@ Note: After adding a track pattern, you must commit the updated .gitattributes b
         `NAS paths are symlinked in ${nasLinksDir}:
 ${accessiblePaths.join('\n')}
 
-Read, write, and manage files in these directories.`);
+These are live mounts to shared network storage. All changes are immediate and affect the actual NAS — there is no undo.
+
+## Safety rules
+- **Never delete files or directories** without explicit user confirmation
+- **List before bulk operations** — always \`ls\` a directory before moving, copying, or modifying its contents
+- **Do not overwrite** existing files without asking — prefer writing to new paths
+- Treat these paths as shared storage that other users and systems may access concurrently`);
     }
 
     // Load secrets — scope-specific secrets override org secrets of the same key.
@@ -894,7 +918,7 @@ Read, write, and manage files in these directories.`);
       });
     }
 
-    // MCP servers (org-wide + agent-specific)
+    // MCP servers (org-wide + agent-specific) — filter out structurally invalid configs
     const mcpServers = getAll(
       `SELECT * FROM mcp_servers
        WHERE enabled = 1 AND ((org_id = ? AND agent_id IS NULL) OR agent_id = ?)`,
@@ -902,6 +926,19 @@ Read, write, and manage files in these directories.`);
     ).map(s => {
       const config = JSON.parse(resolveSecretsForConfig(s.config));
       return { name: s.name, transport: s.transport, config };
+    }).filter(s => {
+      if (s.transport === 'stdio') {
+        if (!s.config.command || typeof s.config.command !== 'string') {
+          console.warn(`[executor] Skipping MCP server "${s.name}": stdio transport missing "command"`);
+          return false;
+        }
+      } else {
+        if (!s.config.url || typeof s.config.url !== 'string') {
+          console.warn(`[executor] Skipping MCP server "${s.name}": ${s.transport} transport missing "url"`);
+          return false;
+        }
+      }
+      return true;
     });
 
     // Custom skills (org-wide + agent-specific)

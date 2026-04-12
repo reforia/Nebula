@@ -76,10 +76,26 @@ describe('MCP Servers API', () => {
     it('defaults transport to stdio', async () => {
       const res = await request(app, 'POST', '/api/mcp-servers', {
         cookie,
-        body: { name: 'test' },
+        body: { name: 'test', config: { command: 'node', args: ['server.js'] } },
       });
       assert.equal(res.status, 201);
       assert.equal(res.body.transport, 'stdio');
+    });
+
+    it('rejects stdio server without command', async () => {
+      const res = await request(app, 'POST', '/api/mcp-servers', {
+        cookie,
+        body: { name: 'bad' },
+      });
+      assert.equal(res.status, 400);
+    });
+
+    it('rejects http server without url', async () => {
+      const res = await request(app, 'POST', '/api/mcp-servers', {
+        cookie,
+        body: { name: 'bad', transport: 'http', config: JSON.stringify({}) },
+      });
+      assert.equal(res.status, 400);
     });
   });
 
@@ -87,7 +103,7 @@ describe('MCP Servers API', () => {
     it('updates name and config', async () => {
       const created = await request(app, 'POST', '/api/mcp-servers', {
         cookie,
-        body: { name: 'old-name' },
+        body: { name: 'old-name', config: { command: 'original' } },
       });
       const res = await request(app, 'PUT', `/api/mcp-servers/${created.body.id}`, {
         cookie,
@@ -102,7 +118,7 @@ describe('MCP Servers API', () => {
     it('toggles enabled', async () => {
       const created = await request(app, 'POST', '/api/mcp-servers', {
         cookie,
-        body: { name: 'test' },
+        body: { name: 'test', config: { command: 'node' } },
       });
       const res = await request(app, 'PUT', `/api/mcp-servers/${created.body.id}`, {
         cookie,
@@ -124,7 +140,7 @@ describe('MCP Servers API', () => {
     it('deletes an org-wide server', async () => {
       const created = await request(app, 'POST', '/api/mcp-servers', {
         cookie,
-        body: { name: 'to-delete' },
+        body: { name: 'to-delete', config: { command: 'node' } },
       });
       const res = await request(app, 'DELETE', `/api/mcp-servers/${created.body.id}`, { cookie });
       assert.equal(res.status, 200);
@@ -142,12 +158,12 @@ describe('MCP Servers API', () => {
       // Create org-wide server
       await request(app, 'POST', '/api/mcp-servers', {
         cookie,
-        body: { name: 'org-server' },
+        body: { name: 'org-server', config: { command: 'node' } },
       });
       // Create agent-specific server
       await request(app, 'POST', `/api/agents/${agentId}/mcp-servers`, {
         cookie,
-        body: { name: 'agent-server' },
+        body: { name: 'agent-server', config: { command: 'npx' } },
       });
 
       const res = await request(app, 'GET', `/api/agents/${agentId}/mcp-servers`, { cookie });
@@ -185,7 +201,7 @@ describe('MCP Servers API', () => {
     it('updates agent-specific server', async () => {
       const created = await request(app, 'POST', `/api/agents/${agentId}/mcp-servers`, {
         cookie,
-        body: { name: 'original' },
+        body: { name: 'original', config: { command: 'node' } },
       });
       const res = await request(app, 'PUT', `/api/agents/${agentId}/mcp-servers/${created.body.id}`, {
         cookie,
@@ -200,7 +216,7 @@ describe('MCP Servers API', () => {
     it('deletes agent-specific server', async () => {
       const created = await request(app, 'POST', `/api/agents/${agentId}/mcp-servers`, {
         cookie,
-        body: { name: 'temp' },
+        body: { name: 'temp', config: { command: 'node' } },
       });
       const res = await request(app, 'DELETE', `/api/agents/${agentId}/mcp-servers/${created.body.id}`, { cookie });
       assert.equal(res.status, 200);
@@ -213,7 +229,7 @@ describe('MCP Servers API', () => {
     it('cannot delete org server via agent route', async () => {
       const orgServer = await request(app, 'POST', '/api/mcp-servers', {
         cookie,
-        body: { name: 'org-owned' },
+        body: { name: 'org-owned', config: { command: 'node' } },
       });
       const res = await request(app, 'DELETE', `/api/agents/${agentId}/mcp-servers/${orgServer.body.id}`, { cookie });
       assert.equal(res.status, 404);
@@ -227,7 +243,7 @@ describe('MCP Servers API', () => {
       // Create server in first org
       await request(app, 'POST', '/api/mcp-servers', {
         cookie,
-        body: { name: 'private-server' },
+        body: { name: 'private-server', config: { command: 'node' } },
       });
 
       // Register second user (different org)
@@ -316,19 +332,19 @@ describe('MCP Servers API', () => {
       assert.equal(isSessionInitialized(convId), true, 'non-opted-in agent session should stay');
     });
 
-    it('does NOT reset when config is structurally invalid', async () => {
+    it('rejects structurally invalid config on create', async () => {
       await request(app, 'PUT', `/api/agents/${agentId}`, {
         cookie, body: { mcp_auto_reset: true },
       });
       const convId = initSession(agentId);
 
-      // Create with empty config (no command for stdio, no url for http)
-      await request(app, 'POST', `/api/agents/${agentId}/mcp-servers`, {
+      // Create with empty config (no command for stdio) — should be rejected
+      const res = await request(app, 'POST', `/api/agents/${agentId}/mcp-servers`, {
         cookie,
         body: { name: 'empty', transport: 'stdio' },
       });
-
-      assert.equal(isSessionInitialized(convId), true, 'invalid config should not trigger reset');
+      assert.equal(res.status, 400);
+      assert.equal(isSessionInitialized(convId), true, 'rejected create should not trigger reset');
     });
 
     it('does NOT reset when server is created disabled', async () => {

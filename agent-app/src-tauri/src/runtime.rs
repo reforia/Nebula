@@ -643,19 +643,39 @@ fn ensure_mcp_bridge(work_dir: &Path) -> String {
 fn write_mcp_config(work_dir: &Path, mcp_servers: &[serde_json::Value], format: &str) {
     if mcp_servers.is_empty() { return; }
 
+    // Filter out structurally invalid configs
+    let valid_servers: Vec<&serde_json::Value> = mcp_servers.iter().filter(|server| {
+        let transport = server["transport"].as_str().unwrap_or("stdio");
+        if transport == "stdio" {
+            if server["config"]["command"].as_str().is_none() {
+                eprintln!("[mcp] Skipping \"{}\": stdio transport missing \"command\"",
+                    server["name"].as_str().unwrap_or("unknown"));
+                return false;
+            }
+        } else if server["config"]["url"].as_str().is_none() {
+            eprintln!("[mcp] Skipping \"{}\": {} transport missing \"url\"",
+                server["name"].as_str().unwrap_or("unknown"), transport);
+            return false;
+        }
+        true
+    }).collect();
+    if valid_servers.is_empty() { return; }
+
     match format {
         "claude" => {
             let mut config = serde_json::json!({"mcpServers": {}});
             let bridge_path = ensure_mcp_bridge(work_dir);
-            for server in mcp_servers {
+            for server in &valid_servers {
                 let name = server["name"].as_str().unwrap_or("unknown");
                 let transport = server["transport"].as_str().unwrap_or("stdio");
                 if transport == "stdio" {
+                    let args = server["config"].get("args").cloned().unwrap_or(serde_json::json!([]));
+                    let env = server["config"].get("env").cloned().unwrap_or(serde_json::json!({}));
                     config["mcpServers"][name] = serde_json::json!({
                         "type": "stdio",
                         "command": server["config"]["command"],
-                        "args": server["config"]["args"],
-                        "env": server["config"]["env"],
+                        "args": args,
+                        "env": env,
                     });
                 } else {
                     // Bridge HTTP/SSE MCP servers through a stdio proxy
@@ -687,7 +707,7 @@ fn write_mcp_config(work_dir: &Path, mcp_servers: &[serde_json::Value], format: 
                 "$schema": "https://opencode.ai/config.json",
                 "mcp": {}
             });
-            for server in mcp_servers {
+            for server in &valid_servers {
                 let name = server["name"].as_str().unwrap_or("unknown");
                 let transport = server["transport"].as_str().unwrap_or("stdio");
                 if transport == "stdio" {

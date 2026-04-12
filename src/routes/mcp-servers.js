@@ -78,29 +78,21 @@ mcpServersRouter.post('/', (req, res) => {
     return res.status(400).json({ error: `Transport must be one of: ${VALID_TRANSPORTS.join(', ')}` });
   }
 
-  // Validate config is valid JSON
-  if (config) {
-    try {
-      if (typeof config === 'string') JSON.parse(config);
-    } catch {
-      return res.status(400).json({ error: 'Config must be valid JSON' });
-    }
-  }
+  // Validate config
+  const configStr = typeof config === 'object' ? JSON.stringify(config) : (config || '{}');
+  const effectiveTransport = transport || 'stdio';
+  const { valid, reason } = validateMcpConfig(effectiveTransport, configStr);
+  if (!valid) return res.status(400).json({ error: reason });
 
   const id = generateId();
-  const configStr = typeof config === 'object' ? JSON.stringify(config) : (config || '{}');
   run(
     `INSERT INTO mcp_servers (id, org_id, agent_id, name, transport, config, enabled)
      VALUES (?, ?, NULL, ?, ?, ?, ?)`,
-    [id, req.orgId, name.trim(), transport || 'stdio', configStr, enabled !== undefined ? (enabled ? 1 : 0) : 1]
+    [id, req.orgId, name.trim(), effectiveTransport, configStr, enabled !== undefined ? (enabled ? 1 : 0) : 1]
   );
 
   const server = getOne('SELECT * FROM mcp_servers WHERE id = ?', [id]);
-  // Only auto-reset if the new server is enabled and structurally valid
-  if (server.enabled) {
-    const { valid } = validateMcpConfig(server.transport, server.config);
-    if (valid) resetSessionsForMcpChange(req.orgId);
-  }
+  if (server.enabled) resetSessionsForMcpChange(req.orgId);
   res.status(201).json(server);
 });
 
@@ -114,6 +106,14 @@ mcpServersRouter.put('/:id', (req, res) => {
 
   if (req.body.transport && !VALID_TRANSPORTS.includes(req.body.transport)) {
     return res.status(400).json({ error: `Transport must be one of: ${VALID_TRANSPORTS.join(', ')}` });
+  }
+
+  // Validate config + transport combination if either is being updated
+  if (req.body.config !== undefined || req.body.transport !== undefined) {
+    const newConfig = req.body.config !== undefined ? (typeof req.body.config === 'object' ? JSON.stringify(req.body.config) : req.body.config) : server.config;
+    const newTransport = req.body.transport || server.transport;
+    const { valid, reason } = validateMcpConfig(newTransport, newConfig);
+    if (!valid) return res.status(400).json({ error: reason });
   }
 
   // Guard: check secrets are configured before enabling
@@ -147,11 +147,7 @@ mcpServersRouter.put('/:id', (req, res) => {
   }
 
   const updated = getOne('SELECT * FROM mcp_servers WHERE id = ?', [req.params.id]);
-  // Auto-reset if the updated server is enabled and structurally valid
-  if (updated.enabled) {
-    const { valid } = validateMcpConfig(updated.transport, updated.config);
-    if (valid) resetSessionsForMcpChange(req.orgId);
-  }
+  if (updated.enabled) resetSessionsForMcpChange(req.orgId);
   res.json(updated);
 });
 
@@ -198,27 +194,20 @@ agentMcpServersRouter.post('/:id/mcp-servers', (req, res) => {
     return res.status(400).json({ error: `Transport must be one of: ${VALID_TRANSPORTS.join(', ')}` });
   }
 
-  if (config) {
-    try {
-      if (typeof config === 'string') JSON.parse(config);
-    } catch {
-      return res.status(400).json({ error: 'Config must be valid JSON' });
-    }
-  }
+  const configStr = typeof config === 'object' ? JSON.stringify(config) : (config || '{}');
+  const effectiveTransport = transport || 'stdio';
+  const { valid, reason } = validateMcpConfig(effectiveTransport, configStr);
+  if (!valid) return res.status(400).json({ error: reason });
 
   const id = generateId();
-  const configStr = typeof config === 'object' ? JSON.stringify(config) : (config || '{}');
   run(
     `INSERT INTO mcp_servers (id, org_id, agent_id, name, transport, config, enabled)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, req.orgId, req.params.id, name.trim(), transport || 'stdio', configStr, enabled !== undefined ? (enabled ? 1 : 0) : 1]
+    [id, req.orgId, req.params.id, name.trim(), effectiveTransport, configStr, enabled !== undefined ? (enabled ? 1 : 0) : 1]
   );
 
   const server = getOne('SELECT * FROM mcp_servers WHERE id = ?', [id]);
-  if (server.enabled) {
-    const { valid } = validateMcpConfig(server.transport, server.config);
-    if (valid) resetSessionsForMcpChange(req.orgId, req.params.id);
-  }
+  if (server.enabled) resetSessionsForMcpChange(req.orgId, req.params.id);
   res.status(201).json(server);
 });
 
@@ -232,6 +221,14 @@ agentMcpServersRouter.put('/:id/mcp-servers/:serverId', (req, res) => {
 
   if (req.body.transport && !VALID_TRANSPORTS.includes(req.body.transport)) {
     return res.status(400).json({ error: `Transport must be one of: ${VALID_TRANSPORTS.join(', ')}` });
+  }
+
+  // Validate config + transport combination if either is being updated
+  if (req.body.config !== undefined || req.body.transport !== undefined) {
+    const newConfig = req.body.config !== undefined ? (typeof req.body.config === 'object' ? JSON.stringify(req.body.config) : req.body.config) : server.config;
+    const newTransport = req.body.transport || server.transport;
+    const { valid, reason } = validateMcpConfig(newTransport, newConfig);
+    if (!valid) return res.status(400).json({ error: reason });
   }
 
   // Guard: check secrets are configured before enabling
@@ -265,10 +262,7 @@ agentMcpServersRouter.put('/:id/mcp-servers/:serverId', (req, res) => {
   }
 
   const updated = getOne('SELECT * FROM mcp_servers WHERE id = ?', [req.params.serverId]);
-  if (updated.enabled) {
-    const { valid } = validateMcpConfig(updated.transport, updated.config);
-    if (valid) resetSessionsForMcpChange(req.orgId, req.params.id);
-  }
+  if (updated.enabled) resetSessionsForMcpChange(req.orgId, req.params.id);
   res.json(updated);
 });
 

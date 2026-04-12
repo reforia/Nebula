@@ -94,22 +94,30 @@ export default function McpServerEditor({ scope, agentId, onMutate, mcpAutoReset
 function CreateMcpForm({ scope, agentId, onCreated }: { scope: 'org' | 'agent'; agentId?: string; onCreated: () => void }) {
   const [name, setName] = useState('');
   const [transport, setTransport] = useState<'stdio' | 'http' | 'sse'>('stdio');
+  const [command, setCommand] = useState('');
+  const [url, setUrl] = useState('');
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     if (!name.trim()) return;
-    const defaultConfig = transport === 'stdio' ? { command: '', args: [], env: {} } : { url: '', headers: {} };
+    if (transport === 'stdio' && !command.trim()) { setError('Command is required for stdio transport'); return; }
+    if (transport !== 'stdio' && !url.trim()) { setError('URL is required for ' + transport.toUpperCase() + ' transport'); return; }
+    const config = transport === 'stdio'
+      ? { command: command.trim(), args: [], env: {} }
+      : { url: url.trim(), headers: {} };
     try {
       if (scope === 'org') {
-        await createOrgMcpServer({ name: name.trim(), transport, config: JSON.stringify(defaultConfig) });
+        await createOrgMcpServer({ name: name.trim(), transport, config: JSON.stringify(config) });
       } else {
-        await createAgentMcpServer(agentId!, { name: name.trim(), transport, config: JSON.stringify(defaultConfig) });
+        await createAgentMcpServer(agentId!, { name: name.trim(), transport, config: JSON.stringify(config) });
       }
-      setName('');
+      setName(''); setCommand(''); setUrl('');
       setTransport('stdio');
       onCreated();
-    } catch (err) {
-      console.error('Failed to create MCP server:', err);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to create MCP server');
     }
   };
 
@@ -119,12 +127,20 @@ function CreateMcpForm({ scope, agentId, onCreated }: { scope: 'org' | 'agent'; 
         className="w-full px-3 py-2 bg-nebula-surface border border-nebula-border rounded text-sm text-nebula-text focus:outline-none focus:border-nebula-accent/50" autoFocus />
       <div className="flex gap-2">
         {(['stdio', 'http', 'sse'] as const).map(t => (
-          <button key={t} type="button" onClick={() => setTransport(t)}
+          <button key={t} type="button" onClick={() => { setTransport(t); setError(''); }}
             className={`flex-1 py-1.5 text-xs rounded border transition-colors ${
               transport === t ? 'bg-nebula-accent/10 border-nebula-accent/30 text-nebula-accent' : 'bg-nebula-bg border-nebula-border text-nebula-muted'
             }`}>{t.toUpperCase()}</button>
         ))}
       </div>
+      {transport === 'stdio' ? (
+        <input type="text" placeholder="Command (e.g. npx, node, python)" value={command} onChange={e => { setCommand(e.target.value); setError(''); }}
+          className="w-full px-3 py-2 bg-nebula-surface border border-nebula-border rounded text-sm text-nebula-text font-mono focus:outline-none focus:border-nebula-accent/50" />
+      ) : (
+        <input type="text" placeholder="URL (e.g. https://mcp.example.com/mcp)" value={url} onChange={e => { setUrl(e.target.value); setError(''); }}
+          className="w-full px-3 py-2 bg-nebula-surface border border-nebula-border rounded text-sm text-nebula-text font-mono focus:outline-none focus:border-nebula-accent/50" />
+      )}
+      {error && <p className="text-xs text-red-400">{error}</p>}
       <button type="submit" className="px-3 py-1.5 text-[12px] bg-nebula-accent text-nebula-bg rounded font-medium hover:brightness-110">Create</button>
     </form>
   );
@@ -136,6 +152,20 @@ function McpEditorFields({ server, items, setItems, saving, onSave }: {
 }) {
   const config = parseConfig(server.config);
   const isStdio = server.transport === 'stdio';
+  const [error, setError] = useState('');
+
+  const handleSave = () => {
+    setError('');
+    if (isStdio && !(config as StdioConfig).command?.trim()) {
+      setError('Command is required for stdio transport');
+      return;
+    }
+    if (!isStdio && !(config as RemoteConfig).url?.trim()) {
+      setError('URL is required for ' + server.transport.toUpperCase() + ' transport');
+      return;
+    }
+    onSave({ name: server.name, transport: server.transport, config: server.config });
+  };
 
   const updateLocal = (field: string, value: any) => {
     setItems(prev => prev.map(s => s.id === server.id ? { ...s, [field]: value } : s));
@@ -205,8 +235,9 @@ function McpEditorFields({ server, items, setItems, saving, onSave }: {
         </>
       )}
 
+      {error && <p className="text-xs text-red-400">{error}</p>}
       <div className="flex justify-end">
-        <button onClick={() => onSave({ name: server.name, transport: server.transport, config: server.config })}
+        <button onClick={handleSave}
           disabled={saving} className="px-3 py-1.5 text-[12px] bg-nebula-accent text-nebula-bg rounded font-medium hover:brightness-110 disabled:opacity-50">
           {saving ? 'Saving...' : 'Save'}
         </button>

@@ -370,9 +370,26 @@ function _ensureMcpBridge(workDir) {
 function _writeMcpConfig(workDir, mcpServers, format) {
   if (!mcpServers || mcpServers.length === 0) return;
 
+  // Filter out structurally invalid configs before writing
+  const validServers = mcpServers.filter(s => {
+    if (s.transport === 'stdio') {
+      if (!s.config?.command || typeof s.config.command !== 'string') {
+        console.warn(`[mcp] Skipping "${s.name}": stdio transport missing "command"`);
+        return false;
+      }
+    } else {
+      if (!s.config?.url || typeof s.config.url !== 'string') {
+        console.warn(`[mcp] Skipping "${s.name}": ${s.transport} transport missing "url"`);
+        return false;
+      }
+    }
+    return true;
+  });
+  if (validServers.length === 0) return;
+
   if (format === 'claude') {
     const mcpConfig = { mcpServers: {} };
-    for (const server of mcpServers) {
+    for (const server of validServers) {
       if (server.transport === 'stdio') {
         mcpConfig.mcpServers[server.name] = {
           type: 'stdio',
@@ -397,7 +414,7 @@ function _writeMcpConfig(workDir, mcpServers, format) {
     fs.writeFileSync(path.join(workDir, '.nebula-mcp-config.json'), JSON.stringify(mcpConfig, null, 2));
   } else if (format === 'opencode') {
     const config = { '$schema': 'https://opencode.ai/config.json', mcp: {} };
-    for (const server of mcpServers) {
+    for (const server of validServers) {
       if (server.transport === 'stdio') {
         const args = server.config.args || [];
         config.mcp[server.name] = {
