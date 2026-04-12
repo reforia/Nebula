@@ -1244,7 +1244,16 @@ Help the user complete the setup. Ask about your role if not set. Once you have 
         if (!isRemoteConnected(agentId)) {
           throw new Error('Remote agent is not connected — check the client on the remote machine');
         }
-        result = await executeRemote(agentId, execPrompt, systemPrompt, agent, conversation, { ...options, timeoutMs, runtime, skills: skillDefinitions, mcpServers, secretEnvVars });
+        // Rewrite host.docker.internal to the actual server host for remote agents
+        // (host.docker.internal only resolves inside Docker containers)
+        const serverHost = new URL(API_BASE).hostname;
+        const remoteMcpServers = mcpServers.map(s => {
+          if (s.config?.url && typeof s.config.url === 'string' && s.config.url.includes('host.docker.internal')) {
+            return { ...s, config: { ...s.config, url: s.config.url.replace('host.docker.internal', serverHost) } };
+          }
+          return s;
+        });
+        result = await executeRemote(agentId, execPrompt, systemPrompt, agent, conversation, { ...options, timeoutMs, runtime, skills: skillDefinitions, mcpServers: remoteMcpServers, secretEnvVars });
       } else {
         const execOpts = { maxTurns: options.maxTurns || 50, timeoutMs, signal: abortController.signal, images: options.images || [], mcpServers, secretEnvVars };
         try {
