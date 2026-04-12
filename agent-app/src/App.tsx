@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getVersion } from '@tauri-apps/api/app';
 
 interface AgentState {
   status: 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -28,6 +29,7 @@ export default function App() {
   const [showLogs, setShowLogs] = useState(false);
   const [detectedRuntimes, setDetectedRuntimes] = useState<DetectedRuntime[]>([]);
   const [runtimesLoading, setRuntimesLoading] = useState(true);
+  const [appVersion, setAppVersion] = useState('');
 
   useEffect(() => {
     // Load saved config
@@ -41,6 +43,8 @@ export default function App() {
         }
       }
     });
+
+    getVersion().then(v => setAppVersion(v)).catch(() => {});
 
     // Detect available CLI runtimes
     invoke<DetectedRuntime[]>('detect_runtimes')
@@ -164,6 +168,7 @@ export default function App() {
           <span className="text-[10px] font-bold text-nebula-bg">N</span>
         </div>
         <span className="text-sm font-semibold">Nebula Agent</span>
+        {appVersion && <span className="text-[10px] text-nebula-muted">v{appVersion}</span>}
         <div className="flex-1" />
         <div className={`w-2 h-2 rounded-full ${statusColor}`} />
         <span className="text-[11px] text-nebula-muted capitalize">{state.status}</span>
