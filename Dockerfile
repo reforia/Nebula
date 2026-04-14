@@ -21,6 +21,7 @@ WORKDIR /app
 
 # Install backend dependencies (builds native modules, then remove build tools)
 COPY package.json package-lock.json* ./
+COPY scripts/postinstall.js ./scripts/postinstall.js
 RUN npm install --omit=dev && \
     apt-get purge -y python3 make g++ && \
     apt-get autoremove -y && \
