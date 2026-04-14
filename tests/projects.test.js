@@ -15,20 +15,24 @@ describe('Projects API', () => {
     cookie = reg.cookie;
     orgId = reg.orgId;
   });
+  // Helper: create an agent
+  async function createAgent(name = 'TestBot') {
+    const res = await request(app, 'POST', '/api/agents', { cookie, body: { name } });
+    return res.body;
+  }
+
   async function createProject(overrides = {}) {
     projectCounter++;
+    if (!overrides.coordinator_agent_id) {
+      const agent = await createAgent(`ProjBot-${projectCounter}`);
+      overrides.coordinator_agent_id = agent.id;
+    }
     const body = {
       name: overrides.name || `Test Project ${projectCounter}`,
       git_remote_url: overrides.git_remote_url || `git@gitea:Enigma/Test${projectCounter}.git`,
       ...overrides,
     };
     return request(app, 'POST', '/api/projects', { cookie, body });
-  }
-
-  // Helper: create an agent
-  async function createAgent(name = 'TestBot') {
-    const res = await request(app, 'POST', '/api/agents', { cookie, body: { name } });
-    return res.body;
   }
 
   // ==================== Projects CRUD ====================
@@ -47,7 +51,7 @@ describe('Projects API', () => {
       assert.equal(res.body.length, 1);
       assert.ok(res.body[0].name.startsWith('Test Project'));
       assert.equal(res.body[0].milestone_count, 0);
-      assert.equal(res.body[0].agent_count, 0);
+      assert.equal(res.body[0].agent_count, 1); // coordinator auto-added
     });
   });
 
@@ -79,7 +83,7 @@ describe('Projects API', () => {
       const res = await createProject();
       const conv = getOne('SELECT * FROM conversations WHERE project_id = ?', [res.body.id]);
       assert.ok(conv);
-      assert.equal(conv.agent_id, null);
+      assert.equal(conv.agent_id, res.body.coordinator_agent_id);
       assert.equal(conv.project_id, res.body.id);
     });
 
@@ -352,11 +356,15 @@ describe('Projects API', () => {
       await request(app, 'POST', `/api/projects/${projectId}/agents`, {
         cookie, body: { agent_id: agent.id },
       });
+      const before = await request(app, 'GET', `/api/projects/${projectId}/agents`, { cookie });
+      const countBefore = before.body.length;
+
       const res = await request(app, 'DELETE', `/api/projects/${projectId}/agents/${agent.id}`, { cookie });
       assert.equal(res.status, 200);
 
       const list = await request(app, 'GET', `/api/projects/${projectId}/agents`, { cookie });
-      assert.equal(list.body.length, 0);
+      assert.equal(list.body.length, countBefore - 1);
+      assert.ok(!list.body.find(a => a.agent_id === agent.id));
     });
   });
 

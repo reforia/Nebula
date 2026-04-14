@@ -17,19 +17,23 @@ describe('Project Wizard API', () => {
     orgId = reg.orgId;
   });
 
+  async function createAgent(name = 'WizBot') {
+    const res = await request(app, 'POST', '/api/agents', { cookie, body: { name, role: 'test agent' } });
+    return res.body;
+  }
+
   async function createProject(overrides = {}) {
     projectCounter++;
+    if (!overrides.coordinator_agent_id) {
+      const agent = await createAgent(`WizBot-${projectCounter}`);
+      overrides.coordinator_agent_id = agent.id;
+    }
     const body = {
       name: overrides.name || `Wizard Project ${projectCounter}`,
       git_remote_url: overrides.git_remote_url || `git@gitea:Enigma/WizTest${projectCounter}.git`,
       ...overrides,
     };
     return request(app, 'POST', '/api/projects', { cookie, body });
-  }
-
-  async function createAgent(name = 'WizBot') {
-    const res = await request(app, 'POST', '/api/agents', { cookie, body: { name, role: 'test agent' } });
-    return res.body;
   }
 
   describe('POST /api/projects/:id/launch', () => {

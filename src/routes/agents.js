@@ -163,6 +163,16 @@ router.delete('/:id', (req, res) => {
   const agent = getOne('SELECT * FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
+  // Block deletion if agent is assigned to any project
+  const projectRefs = getAll(
+    `SELECT p.name, pa.role FROM project_agents pa JOIN projects p ON pa.project_id = p.id WHERE pa.agent_id = ?`,
+    [req.params.id]
+  );
+  if (projectRefs.length > 0) {
+    const names = projectRefs.map(r => `${r.name} (${r.role})`).join(', ');
+    return res.status(400).json({ error: `Agent is assigned to projects: ${names}. Remove from projects first.` });
+  }
+
   run('DELETE FROM agents WHERE id = ?', [req.params.id]);
 
   // Clean up filesystem

@@ -115,7 +115,7 @@ export default function ProjectWizard({ agents, onClose, onCreated }: Props) {
 
   const canProceedProvider = validation?.valid && validation.capabilities.list_repos && validation.capabilities.read_repos;
   const canProceedRepo = repoMode === 'link_existing' ? !!selectedRepo : !!newRepoName.trim();
-  const canCreate = name.trim().length > 0;
+  const canCreate = name.trim().length > 0 && !!coordinatorId;
 
   const steps = [
     { key: 'provider', label: 'Provider' },
@@ -292,7 +292,7 @@ export default function ProjectWizard({ agents, onClose, onCreated }: Props) {
             <label className="text-xs text-nebula-muted block mb-1">Coordinator Agent</label>
             <select value={coordinatorId} onChange={e => setCoordinatorId(e.target.value)}
               className="w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded text-sm text-nebula-text">
-              <option value="">None</option>
+              <option value="">Select an agent...</option>
               {agents.filter(a => a.enabled).map(a => (
                 <option key={a.id} value={a.id}>{a.emoji} {a.name}</option>
               ))}

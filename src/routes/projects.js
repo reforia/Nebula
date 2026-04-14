@@ -89,10 +89,9 @@ router.post('/', async (req, res) => {
   const existingRepo = getOne('SELECT id, name FROM projects WHERE git_remote_url = ? AND org_id = ?', [git_remote_url.trim(), req.orgId]);
   if (existingRepo) return res.status(400).json({ error: `A project already exists for this repository: "${existingRepo.name}"` });
 
-  if (coordinator_agent_id) {
-    const agent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [coordinator_agent_id, req.orgId]);
-    if (!agent) return res.status(400).json({ error: 'Coordinator agent not found' });
-  }
+  if (!coordinator_agent_id) return res.status(400).json({ error: 'Coordinator agent is required' });
+  const coordinatorAgent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [coordinator_agent_id, req.orgId]);
+  if (!coordinatorAgent) return res.status(400).json({ error: 'Coordinator agent not found' });
 
   const id = generateId();
   run(

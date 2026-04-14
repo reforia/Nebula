@@ -21,6 +21,10 @@ describe('Project Conversation', () => {
   }
 
   async function createProject(overrides = {}) {
+    if (!overrides.coordinator_agent_id) {
+      const agent = await createAgent('CoordBot');
+      overrides.coordinator_agent_id = agent.id;
+    }
     const body = { name: 'TestProj', git_remote_url: 'git@test:org/repo.git', ...overrides };
     const res = await request(app, 'POST', '/api/projects', { cookie, body });
     return res.body;
@@ -30,7 +34,7 @@ describe('Project Conversation', () => {
     const project = await createProject();
     const conv = getOne('SELECT * FROM conversations WHERE project_id = ?', [project.id]);
     assert.ok(conv);
-    assert.equal(conv.agent_id, null);
+    assert.equal(conv.agent_id, project.coordinator_agent_id);
     assert.equal(conv.project_id, project.id);
   });
 

@@ -93,8 +93,9 @@ describe('Security & Edge Cases', () => {
   describe('cross-org access', () => {
     it('cannot update another org milestone', async () => {
       // Create project in org 1
+      const coord = await createAgent('Coord1');
       const proj = await request(app, 'POST', '/api/projects', {
-        cookie, body: { name: 'OrgProject', git_remote_url: 'git@test:org/repo.git' },
+        cookie, body: { name: 'OrgProject', git_remote_url: 'git@test:org/repo.git', coordinator_agent_id: coord.id },
       });
       const m = await request(app, 'POST', `/api/projects/${proj.body.id}/milestones`, {
         cookie, body: { name: 'M1' },
@@ -111,8 +112,9 @@ describe('Security & Edge Cases', () => {
     });
 
     it('cannot delete another org deliverable', async () => {
+      const coord2 = await createAgent('Coord2');
       const proj = await request(app, 'POST', '/api/projects', {
-        cookie, body: { name: 'OrgProject2', git_remote_url: 'git@test:org/repo2.git' },
+        cookie, body: { name: 'OrgProject2', git_remote_url: 'git@test:org/repo2.git', coordinator_agent_id: coord2.id },
       });
       const m = await request(app, 'POST', `/api/projects/${proj.body.id}/milestones`, {
         cookie, body: { name: 'M1' },
@@ -197,24 +199,28 @@ describe('Security & Edge Cases', () => {
 
   describe('duplicate git repo prevention', () => {
     it('rejects project with same git_remote_url in same org', async () => {
+      const coordA = await createAgent('CoordA');
       await request(app, 'POST', '/api/projects', {
-        cookie, body: { name: 'Project A', git_remote_url: 'git@test:org/same-repo.git' },
+        cookie, body: { name: 'Project A', git_remote_url: 'git@test:org/same-repo.git', coordinator_agent_id: coordA.id },
       });
+      const coordB = await createAgent('CoordB');
       const res = await request(app, 'POST', '/api/projects', {
-        cookie, body: { name: 'Project B', git_remote_url: 'git@test:org/same-repo.git' },
+        cookie, body: { name: 'Project B', git_remote_url: 'git@test:org/same-repo.git', coordinator_agent_id: coordB.id },
       });
       assert.equal(res.status, 400);
       assert.ok(res.body.error.includes('already exists for this repository'));
     });
 
     it('allows same git_remote_url in different orgs', async () => {
+      const coord1 = await createAgent('Coord1');
       await request(app, 'POST', '/api/projects', {
-        cookie, body: { name: 'Org1 Project', git_remote_url: 'git@test:org/shared-repo.git' },
+        cookie, body: { name: 'Org1 Project', git_remote_url: 'git@test:org/shared-repo.git', coordinator_agent_id: coord1.id },
       });
 
       const reg2 = await registerTestUser(app, { email: 'other@test.com', name: 'Other', orgName: 'Org 2' });
+      const coord2Res = await request(app, 'POST', '/api/agents', { cookie: reg2.cookie, body: { name: 'Coord2' } });
       const res = await request(app, 'POST', '/api/projects', {
-        cookie: reg2.cookie, body: { name: 'Org2 Project', git_remote_url: 'git@test:org/shared-repo.git' },
+        cookie: reg2.cookie, body: { name: 'Org2 Project', git_remote_url: 'git@test:org/shared-repo.git', coordinator_agent_id: coord2Res.body.id },
       });
       assert.equal(res.status, 201);
     });

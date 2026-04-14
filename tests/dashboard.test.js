@@ -19,6 +19,10 @@ describe('Project Dashboard', () => {
   }
 
   async function createProject(overrides = {}) {
+    if (!overrides.coordinator_agent_id) {
+      const agent = await createAgent('CoordBot');
+      overrides.coordinator_agent_id = agent.id;
+    }
     const body = { name: 'DashProj', git_remote_url: 'git@test:org/repo.git', ...overrides };
     const res = await request(app, 'POST', '/api/projects', { cookie, body });
     return res.body;
@@ -32,7 +36,8 @@ describe('Project Dashboard', () => {
     assert.equal(res.body.progress.total_deliverables, 0);
     assert.equal(res.body.progress.percent, 0);
     assert.deepStrictEqual(res.body.milestones, []);
-    assert.deepStrictEqual(res.body.agents, []);
+    assert.equal(res.body.agents.length, 1); // coordinator auto-added
+    assert.equal(res.body.agents[0].role, 'coordinator');
   });
 
   it('returns milestone progress breakdown', async () => {
