@@ -24,22 +24,7 @@ Self-hosted AI agent platform. Create, manage, and orchestrate multiple AI agent
 
 ## Quick Start
 
-### Docker (recommended)
-
-```bash
-git clone https://github.com/reforia/Nebula.git
-cd Nebula
-cp .env.example .env
-
-# Generate an encryption key
-echo "NEBULA_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
-
-docker compose up -d
-```
-
-Open `http://localhost:8080` — the setup wizard walks you through creating an admin account and detecting CLI runtimes.
-
-### From Source
+### From Source (macOS / Windows)
 
 ```bash
 git clone https://github.com/reforia/Nebula.git
@@ -55,12 +40,29 @@ echo "NEBULA_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
 DATA_DIR=./data npm start
 ```
 
+Open `http://localhost:8080` — the setup wizard walks you through creating an admin account and detecting CLI runtimes.
+
 > **Note:** `npm install` runs a postinstall script that fixes execute permissions on the `node-pty` spawn helper. If you see `posix_spawnp failed` errors, run `node scripts/postinstall.js` manually.
+
+### Docker (Linux only)
+
+```bash
+git clone https://github.com/reforia/Nebula.git
+cd Nebula
+cp .env.example .env
+
+# Generate an encryption key
+echo "NEBULA_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
+
+docker compose up -d
+```
+
+> **Why Linux only?** Nebula executes AI agents through CLI runtimes (Claude Code, Codex, Gemini CLI, etc.) that must be installed and authenticated on the same machine. On macOS and Windows, Docker runs inside a Linux VM — CLI runtimes installed on your host are not accessible inside the container. You would need to separately install, authenticate, and maintain the CLIs inside the container, losing access to your host filesystem, existing configurations, and credentials. Running from source avoids this entirely by using your existing CLI installations directly.
 
 ### Requirements
 
 - **Node.js 22+** (if running from source)
-- **At least one CLI runtime** installed in the container or host:
+- **At least one CLI runtime** installed on the host (from source) or in the container (Docker):
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) — **most actively supported**
   - [OpenCode](https://opencode.ai) (`opencode`)
   - [Codex CLI](https://github.com/openai/codex) (`codex`)
