@@ -5,7 +5,7 @@ import os from 'os';
 import { getOne } from '../db.js';
 import { registerOAuthClient } from './oauth.js';
 
-const DATA_DIR = process.env.DATA_DIR || './data';
+const DATA_DIR = process.env.DATA_DIR || '/data';
 const INSTANCE_FILE = path.join(DATA_DIR, '.instance_id');
 const LICENSE_FILE = path.join(DATA_DIR, '.license');
 const PLATFORM_URL = process.env.PLATFORM_URL || 'https://dev.enigmaetmt.com:9443';

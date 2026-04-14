@@ -9,7 +9,7 @@ import { registry } from '../backends/index.js';
 const router = Router();
 
 // Templates directory: /data/templates at runtime, ./templates as built-in fallback
-const DATA_DIR = process.env.DATA_DIR || './data';
+const DATA_DIR = process.env.DATA_DIR || '/data';
 const TEMPLATES_DIR = path.join(DATA_DIR, 'templates');
 const BUILTIN_TEMPLATES_DIR = path.resolve(
   path.dirname(new URL(import.meta.url).pathname), '..', '..', 'templates'

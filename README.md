@@ -37,7 +37,7 @@ cd frontend && npm install && npm run build && cd ..
 cp .env.example .env
 echo "NEBULA_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
 
-DATA_DIR=./data npm start
+npm start
 ```
 
 Open `http://localhost:8080` — the setup wizard walks you through creating an admin account and detecting CLI runtimes.
@@ -131,25 +131,34 @@ User (email/password auth)
 
 ## Configuration
 
-All configuration is via environment variables. Copy `.env.example` to `.env` and edit as needed — both Docker and from-source setups read from it.
+All configuration is via environment variables in `.env`. The npm scripts load this file automatically via Node's `--env-file-if-exists` flag, and Docker Compose reads it for container configuration.
 
 ```bash
 cp .env.example .env
 ```
 
+### Server variables (used by both Docker and from-source)
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NEBULA_ENCRYPTION_KEY` | — | **Required.** AES-256 key for secrets vault. Generate with `openssl rand -hex 32`. |
-| `NEBULA_PORT` | `8080` | HTTP port |
+| `DATA_DIR` | `/data` | Persistent data directory. Set to `./data` when running from source. |
+| `PORT` | `8080` | HTTP port the server listens on. |
 | `NEBULA_URL` | — | External URL of this instance (e.g. `http://your-server:8080`). Required for remote agents and built-in skills. |
-| `NEBULA_DATA_DIR` | `./data` | Persistent data directory (SQLite database, agent workspaces, backups) |
-| `RUNTIMES_DIR` | `./runtimes` | Directory for CLI runtime binaries. Place or symlink binaries into `runtimes/bin/` — auto-detected at startup. |
-| `CLI_HOME_DIR` | `./cli-home` | Docker only. Persists CLI auth and config (`~/.claude`, `~/.config/gemini`, etc.) across container restarts. |
-| `SSH_KEYS_DIR` | `./ssh-keys` | Docker only. Mounts SSH keys into the container (read-only). |
-| `NEBULA_UID` / `NEBULA_GID` | `1000` | Docker only. Container user UID/GID — match your host user for correct file ownership. |
 | `AUTH_PROVIDER` | `local` | Auth mode: `local` (email/password) or `enigma` (OAuth) |
 | `TZ` | `UTC` | Timezone for cron schedules |
 | `HTTP_PROXY` / `HTTPS_PROXY` | — | HTTP proxy for outbound requests. `NO_PROXY` defaults to `localhost,127.0.0.1`. |
+
+### Docker-only variables (ignored when running from source)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEBULA_PORT` | `8080` | Host port mapped to the container's `PORT`. |
+| `NEBULA_DATA_DIR` | `./data` | Host path mounted as `/data` inside the container. |
+| `RUNTIMES_DIR` | `./runtimes` | Directory for CLI runtime binaries. Place or symlink binaries into `runtimes/bin/` — auto-detected at startup. |
+| `CLI_HOME_DIR` | `./cli-home` | Persists CLI auth and config (`~/.claude`, `~/.config/gemini`, etc.) across container restarts. |
+| `SSH_KEYS_DIR` | `./ssh-keys` | Mounts SSH keys into the container (read-only). |
+| `NEBULA_UID` / `NEBULA_GID` | `1000` | Container user UID/GID — match your host user for correct file ownership. |
 
 ## CLI Runtime Registry
 
@@ -158,8 +167,8 @@ Agents execute via pluggable CLI adapters. No CLI is hardcoded — adding a new 
 ## Development
 
 ```bash
-# Backend with local data directory
-DATA_DIR=./data npm run dev
+# Backend (reads DATA_DIR from .env)
+npm run dev
 
 # Frontend dev server (proxies to backend on :8080)
 cd frontend && npm run dev

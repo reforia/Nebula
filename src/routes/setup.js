@@ -129,7 +129,7 @@ router.post('/complete', requireAuth, (req, res) => {
     }
 
     // Load template — user-selected or fallback to starter
-    const DATA_DIR = process.env.DATA_DIR || './data';
+    const DATA_DIR = process.env.DATA_DIR || '/data';
     const TEMPLATES_DIR = path.join(DATA_DIR, 'templates');
     const builtinDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'templates');
 
