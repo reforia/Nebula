@@ -3,6 +3,48 @@
  * Factory function returns provider-specific adapter based on project config.
  */
 
+import https from 'node:https';
+import http from 'node:http';
+
+const insecureAgent = new https.Agent({ rejectUnauthorized: false });
+
+/**
+ * fetch() wrapper that tolerates self-signed TLS certificates when insecure=true.
+ * Falls back to normal fetch() when insecure is false.
+ * Returns a fetch-compatible Response object.
+ */
+function gitFetch(url, options = {}, insecure = false) {
+  if (!insecure) return fetch(url, options);
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const mod = parsed.protocol === 'https:' ? https : http;
+    const reqOptions = {
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method: options.method || 'GET',
+      headers: options.headers || {},
+    };
+    if (parsed.protocol === 'https:') reqOptions.agent = insecureAgent;
+    const req = mod.request(reqOptions, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        resolve({
+          ok: res.statusCode >= 200 && res.statusCode < 300,
+          status: res.statusCode,
+          headers: { get: (name) => res.headers[name.toLowerCase()] },
+          json: () => Promise.resolve(JSON.parse(body)),
+          text: () => Promise.resolve(body),
+        });
+      });
+    });
+    req.on('error', reject);
+    if (options.body) req.write(options.body);
+    req.end();
+  });
+}
+
 /**
  * Parse owner/repo from a git remote URL.
  * Supports SSH (git@host:owner/repo.git) and HTTPS (https://host/owner/repo.git).
@@ -25,7 +67,7 @@ function parseRemoteUrl(url) {
 
 // ==================== Gitea Adapter ====================
 
-function giteaAdapter({ host, owner, repo, token, apiUrl }) {
+function giteaAdapter({ host, owner, repo, token, apiUrl, insecure }) {
   let baseUrl;
   if (apiUrl) {
     // Explicit API URL override (e.g. "http://gitea.local:3000")
@@ -36,11 +78,12 @@ function giteaAdapter({ host, owner, repo, token, apiUrl }) {
   }
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `token ${token}`;
+  const gf = (url, opts) => gitFetch(url, opts, insecure);
 
   return {
     async createPR(branch, title, body) {
       const defaultBranch = await getDefaultBranchFromApi();
-      const res = await fetch(`${baseUrl}/pulls`, {
+      const res = await gf(`${baseUrl}/pulls`, {
         method: 'POST', headers,
         body: JSON.stringify({ head: branch, base: defaultBranch, title, body }),
       });
@@ -50,7 +93,7 @@ function giteaAdapter({ host, owner, repo, token, apiUrl }) {
     },
 
     async listPRs(state = 'open') {
-      const res = await fetch(`${baseUrl}/pulls?state=${state}&limit=50`, { headers });
+      const res = await gf(`${baseUrl}/pulls?state=${state}&limit=50`, { headers });
       if (!res.ok) throw new Error(`Gitea listPRs failed: ${res.status}`);
       const prs = await res.json();
       return prs.map(pr => ({
@@ -60,7 +103,7 @@ function giteaAdapter({ host, owner, repo, token, apiUrl }) {
     },
 
     async mergePR(number, { deleteBranch = false } = {}) {
-      const res = await fetch(`${baseUrl}/pulls/${number}/merge`, {
+      const res = await gf(`${baseUrl}/pulls/${number}/merge`, {
         method: 'POST', headers,
         body: JSON.stringify({ Do: 'merge', delete_branch_after_merge: deleteBranch }),
       });
@@ -69,26 +112,26 @@ function giteaAdapter({ host, owner, repo, token, apiUrl }) {
     },
 
     async getPRStatus(number) {
-      const res = await fetch(`${baseUrl}/pulls/${number}`, { headers });
+      const res = await gf(`${baseUrl}/pulls/${number}`, { headers });
       if (!res.ok) throw new Error(`Gitea getPRStatus failed: ${res.status}`);
       const pr = await res.json();
       return { state: pr.state, mergeable: pr.mergeable, conflicts: !pr.mergeable };
     },
 
     async listWebhooks() {
-      const res = await fetch(`${baseUrl}/hooks`, { headers });
+      const res = await gf(`${baseUrl}/hooks`, { headers });
       if (!res.ok) throw new Error(`Gitea listWebhooks failed: ${res.status}`);
       return res.json();
     },
 
     async testWebhook(hookId) {
-      const res = await fetch(`${baseUrl}/hooks/${hookId}/tests`, { method: 'POST', headers });
+      const res = await gf(`${baseUrl}/hooks/${hookId}/tests`, { method: 'POST', headers });
       if (!res.ok) throw new Error(`Gitea testWebhook failed: ${res.status}`);
       return { ok: true };
     },
 
     async createWebhook(url, secret, events = ['push']) {
-      const res = await fetch(`${baseUrl}/hooks`, {
+      const res = await gf(`${baseUrl}/hooks`, {
         method: 'POST', headers,
         body: JSON.stringify({ type: 'gitea', config: { url, content_type: 'json', secret }, events, active: true }),
       });
@@ -99,7 +142,7 @@ function giteaAdapter({ host, owner, repo, token, apiUrl }) {
 
   async function getDefaultBranchFromApi() {
     try {
-      const repoRes = await fetch(`${baseUrl}`, { headers });
+      const repoRes = await gf(`${baseUrl}`, { headers });
       const repoData = await repoRes.json();
       return repoData.default_branch || 'main';
     } catch {
@@ -217,7 +260,7 @@ export function getGitProvider(project, token, opts = {}) {
 
   switch (project.git_provider) {
     case 'gitea':
-      return giteaAdapter({ host, owner, repo, token, apiUrl: opts.apiUrl });
+      return giteaAdapter({ host, owner, repo, token, apiUrl: opts.apiUrl, insecure: opts.insecure });
     case 'github':
       return githubAdapter({ owner, repo, token });
     default:
@@ -229,13 +272,14 @@ export { parseRemoteUrl };
 
 // ==================== Account-Level Adapters (user-scoped, not repo-scoped) ====================
 
-function giteaAccountAdapter({ token, apiUrl }) {
+function giteaAccountAdapter({ token, apiUrl, insecure }) {
   const baseUrl = `${apiUrl.replace(/\/$/, '')}/api/v1`;
   const headers = { 'Content-Type': 'application/json', 'Authorization': `token ${token}` };
+  const gf = (url, opts) => gitFetch(url, opts, insecure);
 
   return {
     async getUser() {
-      const res = await fetch(`${baseUrl}/user`, { headers });
+      const res = await gf(`${baseUrl}/user`, { headers });
       if (!res.ok) throw new Error(`Auth failed: ${res.status}`);
       const data = await res.json();
       return { username: data.login, email: data.email };
@@ -243,7 +287,7 @@ function giteaAccountAdapter({ token, apiUrl }) {
 
     async listRepos({ page = 1, perPage = 50, search = '' } = {}) {
       const q = search ? `&q=${encodeURIComponent(search)}` : '';
-      const res = await fetch(`${baseUrl}/repos/search?limit=${perPage}&page=${page}${q}&token=`, { headers });
+      const res = await gf(`${baseUrl}/repos/search?limit=${perPage}&page=${page}${q}&token=`, { headers });
       if (!res.ok) throw new Error(`List repos failed: ${res.status}`);
       const data = await res.json();
       const repos = (data.data || data).map(r => ({
@@ -254,7 +298,7 @@ function giteaAccountAdapter({ token, apiUrl }) {
     },
 
     async createRepo(name, { private: isPrivate = true } = {}) {
-      const res = await fetch(`${baseUrl}/user/repos`, {
+      const res = await gf(`${baseUrl}/user/repos`, {
         method: 'POST', headers,
         body: JSON.stringify({ name, private: isPrivate, auto_init: false }),
       });
@@ -266,13 +310,13 @@ function giteaAccountAdapter({ token, apiUrl }) {
     async checkPermissions() {
       const caps = { list_repos: false, read_repos: false, create_repos: false, create_webhooks: false };
       try {
-        const res = await fetch(`${baseUrl}/repos/search?limit=1`, { headers });
+        const res = await gf(`${baseUrl}/repos/search?limit=1`, { headers });
         caps.list_repos = res.ok;
         caps.read_repos = res.ok;
       } catch {}
       try {
         // Test create by checking if token can access user/repos endpoint
-        const res = await fetch(`${baseUrl}/user/repos?limit=1`, { headers });
+        const res = await gf(`${baseUrl}/user/repos?limit=1`, { headers });
         caps.create_repos = res.ok;
         caps.create_webhooks = res.ok; // Gitea: repo owners can manage hooks
       } catch {}
@@ -345,7 +389,7 @@ export function getGitProviderAccount(provider, token, opts = {}) {
   switch (provider) {
     case 'gitea':
       if (!opts.apiUrl) throw new Error('Gitea requires an API URL');
-      return giteaAccountAdapter({ token, apiUrl: opts.apiUrl });
+      return giteaAccountAdapter({ token, apiUrl: opts.apiUrl, insecure: opts.insecure });
     case 'github':
       return githubAccountAdapter({ token });
     default:

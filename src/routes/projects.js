@@ -26,12 +26,12 @@ function getProject(projectId, orgId) {
 
 // POST /api/projects/validate-provider — test git provider token and report capabilities
 router.post('/validate-provider', async (req, res) => {
-  const { provider, api_url, token } = req.body;
+  const { provider, api_url, token, insecure_ssl } = req.body;
   if (!provider || !token) return res.status(400).json({ error: 'Provider and token are required' });
   if (provider === 'gitea' && !api_url) return res.status(400).json({ error: 'API URL is required for Gitea' });
 
   try {
-    const account = getGitProviderAccount(provider, token, { apiUrl: api_url });
+    const account = getGitProviderAccount(provider, token, { apiUrl: api_url, insecure: !!insecure_ssl });
     const user = await account.getUser();
     const capabilities = await account.checkPermissions();
     res.json({ valid: true, username: user.username, capabilities, errors: [] });
@@ -42,11 +42,11 @@ router.post('/validate-provider', async (req, res) => {
 
 // POST /api/projects/list-repos — list repos accessible to the token
 router.post('/list-repos', async (req, res) => {
-  const { provider, api_url, token, page, per_page, search } = req.body;
+  const { provider, api_url, token, page, per_page, search, insecure_ssl } = req.body;
   if (!provider || !token) return res.status(400).json({ error: 'Provider and token are required' });
 
   try {
-    const account = getGitProviderAccount(provider, token, { apiUrl: api_url });
+    const account = getGitProviderAccount(provider, token, { apiUrl: api_url, insecure: !!insecure_ssl });
     const result = await account.listRepos({ page: page || 1, perPage: per_page || 50, search: search || '' });
     res.json(result);
   } catch (err) {
@@ -77,7 +77,7 @@ router.get('/', (req, res) => {
 
 // POST /api/projects — create project (supports full scaffold in one call)
 router.post('/', async (req, res) => {
-  const { name, description, git_remote_url, git_api_url, git_provider, coordinator_agent_id, auto_merge, agents, milestones,
+  const { name, description, git_remote_url, git_api_url, git_provider, git_insecure_ssl, coordinator_agent_id, auto_merge, agents, milestones,
     git_token, repo_mode, repo_full_name, repo_name, repo_private } = req.body;
 
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
@@ -96,10 +96,10 @@ router.post('/', async (req, res) => {
 
   const id = generateId();
   run(
-    `INSERT INTO projects (id, org_id, name, description, git_remote_url, git_api_url, git_provider, coordinator_agent_id, auto_merge, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_ready')`,
+    `INSERT INTO projects (id, org_id, name, description, git_remote_url, git_api_url, git_provider, git_insecure_ssl, coordinator_agent_id, auto_merge, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_ready')`,
     [id, req.orgId, name.trim(), description || '', git_remote_url.trim(),
-     git_api_url?.trim() || null, git_provider || 'gitea', coordinator_agent_id || null, auto_merge ? 1 : 0]
+     git_api_url?.trim() || null, git_provider || 'gitea', git_insecure_ssl ? 1 : 0, coordinator_agent_id || null, auto_merge ? 1 : 0]
   );
 
   // Auto-add coordinator as project agent
@@ -1365,7 +1365,7 @@ function getProviderForProject(project, orgId) {
     token = getOrgSetting(orgId, providerKey);
   }
   const apiUrl = project.git_api_url || getOrgSetting(orgId, `${project.git_provider}_api_url`);
-  return getGitProvider(project, token, { apiUrl: apiUrl || undefined });
+  return getGitProvider(project, token, { apiUrl: apiUrl || undefined, insecure: !!project.git_insecure_ssl });
 }
 
 // POST /api/projects/:id/pr — create PR

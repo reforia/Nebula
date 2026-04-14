@@ -592,9 +592,9 @@ export interface ProviderCapabilities { list_repos: boolean; read_repos: boolean
 export interface ValidateProviderResult { valid: boolean; username: string; capabilities: ProviderCapabilities; errors: string[] }
 export interface RepoInfo { full_name: string; clone_url: string; ssh_url: string; description: string; private: boolean; default_branch: string }
 
-export const validateProvider = (data: { provider: string; api_url?: string; token: string }) =>
+export const validateProvider = (data: { provider: string; api_url?: string; token: string; insecure_ssl?: boolean }) =>
   request<ValidateProviderResult>('/api/projects/validate-provider', { method: 'POST', body: JSON.stringify(data) });
-export const listProviderRepos = (data: { provider: string; api_url?: string; token: string; page?: number; per_page?: number; search?: string }) =>
+export const listProviderRepos = (data: { provider: string; api_url?: string; token: string; insecure_ssl?: boolean; page?: number; per_page?: number; search?: string }) =>
   request<{ repos: RepoInfo[]; total: number }>('/api/projects/list-repos', { method: 'POST', body: JSON.stringify(data) });
 export const launchProject = (projectId: string) =>
   request<{ ok: boolean; project: Project }>(`/api/projects/${projectId}/launch`, { method: 'POST' });

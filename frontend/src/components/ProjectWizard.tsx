@@ -24,6 +24,7 @@ export default function ProjectWizard({ agents, onClose, onCreated }: Props) {
   const [token, setToken] = useState('');
   const [validating, setValidating] = useState(false);
   const [validation, setValidation] = useState<ValidateProviderResult | null>(null);
+  const [insecureSsl, setInsecureSsl] = useState(false);
 
   // Page 2: Repository
   const [repoMode, setRepoMode] = useState<'link_existing' | 'create_new'>('link_existing');
@@ -42,7 +43,7 @@ export default function ProjectWizard({ agents, onClose, onCreated }: Props) {
     setValidating(true);
     setError('');
     try {
-      const result = await validateProvider({ provider, api_url: provider === 'gitea' ? apiUrl : undefined, token });
+      const result = await validateProvider({ provider, api_url: provider === 'gitea' ? apiUrl : undefined, token, insecure_ssl: insecureSsl });
       setValidation(result);
       if (!result.valid) setError(result.errors.join(', '));
     } catch (err: any) {
@@ -55,7 +56,7 @@ export default function ProjectWizard({ agents, onClose, onCreated }: Props) {
   const handleLoadRepos = async (search = '') => {
     setLoadingRepos(true);
     try {
-      const result = await listProviderRepos({ provider, api_url: provider === 'gitea' ? apiUrl : undefined, token, search });
+      const result = await listProviderRepos({ provider, api_url: provider === 'gitea' ? apiUrl : undefined, token, insecure_ssl: insecureSsl, search });
       setRepos(result.repos);
     } catch (err: any) {
       setError(err.message);
@@ -84,6 +85,7 @@ export default function ProjectWizard({ agents, onClose, onCreated }: Props) {
         description,
         git_provider: provider,
         git_api_url: provider === 'gitea' ? apiUrl : undefined,
+        git_insecure_ssl: insecureSsl,
         git_token: token,
         repo_mode: repoMode,
         coordinator_agent_id: coordinatorId || null,
@@ -166,6 +168,13 @@ export default function ProjectWizard({ agents, onClose, onCreated }: Props) {
               className="w-full px-3 py-2 bg-nebula-bg border border-nebula-border rounded text-sm text-nebula-text focus:outline-none focus:border-nebula-accent font-mono"
               placeholder="Your personal access token" />
           </div>
+          {provider === 'gitea' && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={insecureSsl} onChange={e => { setInsecureSsl(e.target.checked); setValidation(null); }}
+                className="rounded border-nebula-border bg-nebula-bg text-nebula-accent focus:ring-nebula-accent" />
+              <span className="text-xs text-nebula-muted">Allow insecure SSL (self-signed certificates)</span>
+            </label>
+          )}
           <button onClick={handleValidate} disabled={validating || !token || (provider === 'gitea' && !apiUrl)}
             className="w-full py-2 text-sm bg-nebula-surface border border-nebula-border rounded-lg hover:bg-nebula-hover disabled:opacity-30 transition-colors">
             {validating ? 'Testing...' : 'Test Connection'}
