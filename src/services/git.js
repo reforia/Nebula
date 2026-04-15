@@ -26,8 +26,14 @@ function validateBranchName(name) {
 
 /**
  * Initialize a new bare repo with scaffold commit, add remote, push.
+ * @param {string} repoPath - where to create the bare repo
+ * @param {string} remoteUrl - SSH remote URL (stored as origin on bare repo)
+ * @param {Object} options
+ * @param {string} [options.cloneUrl] - HTTPS clone URL for pushing scaffold to remote
+ * @param {string} [options.token] - API token for HTTPS push auth
+ * @param {boolean} [options.insecureSsl] - skip SSL verification
  */
-export function initProjectRepo(repoPath, remoteUrl, { name = 'Project', description = '' } = {}) {
+export function initProjectRepo(repoPath, remoteUrl, { name = 'Project', description = '', cloneUrl, token, insecureSsl } = {}) {
   fs.mkdirSync(repoPath, { recursive: true });
   exec(`${GIT} init --bare`, { cwd: repoPath });
 
@@ -50,17 +56,23 @@ export function initProjectRepo(repoPath, remoteUrl, { name = 'Project', descrip
     exec(`${GIT} add -A`, { cwd: tmpDir });
     exec(`${GIT} -c user.name="Nebula" -c user.email="nebula@local" commit -m "Initial project scaffold"`, { cwd: tmpDir });
     exec(`${GIT} push origin main`, { cwd: tmpDir });
+
+    // Push scaffold to the remote repo via HTTPS+token
+    if (cloneUrl && token) {
+      const authUrl = buildAuthenticatedUrl(cloneUrl, token);
+      const sslFlag = insecureSsl ? '-c http.sslVerify=false ' : '';
+      exec(`${GIT} remote add upstream "${authUrl}"`, { cwd: tmpDir });
+      exec(`${GIT} ${sslFlag}push upstream main`, { cwd: tmpDir });
+      // Remove the authenticated remote (token in URL)
+      exec(`${GIT} remote remove upstream`, { cwd: tmpDir });
+    }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 
-  // Add the actual upstream remote
+  // Set origin on bare repo to SSH URL (for ongoing agent operations)
   if (remoteUrl) {
-    try {
-      exec(`${GIT} remote add upstream "${remoteUrl}"`, { cwd: repoPath });
-    } catch {
-      // Remote might already exist
-    }
+    exec(`${GIT} --git-dir="${repoPath}" remote add origin "${remoteUrl}"`, { cwd: repoPath });
   }
 }
 

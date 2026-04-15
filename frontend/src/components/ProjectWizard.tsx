@@ -94,15 +94,9 @@ export default function ProjectWizard({ agents, onClose, onCreated }: Props) {
         data.git_remote_url = selectedRepo.ssh_url || selectedRepo.clone_url;
         data.git_clone_url = selectedRepo.clone_url; // HTTPS URL for authenticated clone
       } else if (repoMode === 'create_new') {
-        // For new repos, construct URL from provider info
-        if (provider === 'gitea' && validation) {
-          const host = new URL(apiUrl).host;
-          data.git_remote_url = `git@${host}:${validation.username}/${newRepoName.trim()}.git`;
-          data.repo_name = newRepoName.trim();
-        } else if (provider === 'github' && validation) {
-          data.git_remote_url = `git@github.com:${validation.username}/${newRepoName.trim()}.git`;
-          data.repo_name = newRepoName.trim();
-        }
+        // Backend creates the repo via provider API and gets proper URLs back
+        data.repo_name = newRepoName.trim();
+        data.repo_private = true;
       }
       await createProject(data);
       onCreated();

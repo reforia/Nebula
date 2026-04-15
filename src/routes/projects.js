@@ -82,13 +82,23 @@ router.post('/', async (req, res) => {
     git_token, repo_mode, repo_full_name, repo_name, repo_private } = req.body;
 
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
-  if (!git_remote_url || !git_remote_url.trim()) return res.status(400).json({ error: 'Git remote URL is required' });
+  if (repo_mode !== 'create_new' && (!git_remote_url || !git_remote_url.trim())) {
+    return res.status(400).json({ error: 'Git remote URL is required' });
+  }
+  if (repo_mode === 'create_new' && (!repo_name || !repo_name.trim())) {
+    return res.status(400).json({ error: 'Repository name is required' });
+  }
+  if (repo_mode === 'create_new' && !git_token) {
+    return res.status(400).json({ error: 'API token is required to create a repository' });
+  }
 
   const existingName = getOne('SELECT id FROM projects WHERE name = ? AND org_id = ?', [name.trim(), req.orgId]);
   if (existingName) return res.status(400).json({ error: 'A project with this name already exists' });
 
-  const existingRepo = getOne('SELECT id, name FROM projects WHERE git_remote_url = ? AND org_id = ?', [git_remote_url.trim(), req.orgId]);
-  if (existingRepo) return res.status(400).json({ error: `A project already exists for this repository: "${existingRepo.name}"` });
+  if (git_remote_url) {
+    const existingRepo = getOne('SELECT id, name FROM projects WHERE git_remote_url = ? AND org_id = ?', [git_remote_url.trim(), req.orgId]);
+    if (existingRepo) return res.status(400).json({ error: `A project already exists for this repository: "${existingRepo.name}"` });
+  }
 
   if (!coordinator_agent_id) return res.status(400).json({ error: 'Coordinator agent is required' });
   const coordinatorAgent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [coordinator_agent_id, req.orgId]);
@@ -98,7 +108,7 @@ router.post('/', async (req, res) => {
   run(
     `INSERT INTO projects (id, org_id, name, description, git_remote_url, git_api_url, git_provider, git_insecure_ssl, coordinator_agent_id, auto_merge, status)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_ready')`,
-    [id, req.orgId, name.trim(), description || '', git_remote_url.trim(),
+    [id, req.orgId, name.trim(), description || '', git_remote_url?.trim() || '',
      git_api_url?.trim() || null, git_provider || 'gitea', git_insecure_ssl ? 1 : 0, coordinator_agent_id || null, auto_merge ? 1 : 0]
   );
 
@@ -151,7 +161,19 @@ router.post('/', async (req, res) => {
   // Initialize git repo — clone existing or scaffold new
   const repoGitPath = orgPath(req.orgId, 'projects', id, 'repo.git');
   try {
-    if (repo_mode === 'link_existing' && git_remote_url) {
+    if (repo_mode === 'create_new' && git_token) {
+      // Create the repo on the remote provider, then scaffold locally and push
+      const account = getGitProviderAccount(git_provider || 'gitea', git_token, {
+        apiUrl: git_api_url?.trim(), insecure: !!git_insecure_ssl,
+      });
+      const created = await account.createRepo(repo_name.trim(), { private: repo_private !== false });
+      // Update project record with the actual URLs from the provider
+      run('UPDATE projects SET git_remote_url = ? WHERE id = ?', [created.ssh_url, id]);
+      git.initProjectRepo(repoGitPath, created.ssh_url, {
+        name: name.trim(), description: description || '',
+        cloneUrl: created.clone_url, token: git_token, insecureSsl: !!git_insecure_ssl,
+      });
+    } else if (repo_mode === 'link_existing' && git_remote_url) {
       // Clone existing repo — use HTTPS+token for auth (validated by wizard), fall back to SSH
       git.cloneRepo(repoGitPath, git_remote_url.trim(), {
         cloneUrl: git_clone_url?.trim(),
@@ -159,9 +181,6 @@ router.post('/', async (req, res) => {
         insecureSsl: !!git_insecure_ssl,
       });
       git.ensureScaffold(repoGitPath, { name: name.trim() });
-    } else if (repo_mode === 'create_new' && git_token && git_remote_url) {
-      // Scaffold new repo and push to remote
-      git.initProjectRepo(repoGitPath, git_remote_url.trim(), { name: name.trim(), description: description || '' });
     } else {
       // Backwards compat: scaffold locally (no remote push)
       git.initProjectRepo(repoGitPath, git_remote_url?.trim(), { name: name.trim(), description: description || '' });
