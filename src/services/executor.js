@@ -10,6 +10,7 @@ import { registry } from '../backends/index.js';
 import { generateIntegrationSkills } from './integrations.js';
 import { CODING_CONVENTIONS_SKILL, intelligenceScanSkill, HTML_REPORT_SKILL } from './builtin-skills.js';
 import { evaluateReadiness } from './readiness.js';
+import * as git from './git.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const API_BASE = (process.env.NEBULA_URL || 'http://localhost:8080').replace(/\/+$/, '');
@@ -241,9 +242,30 @@ class AgentExecutor extends EventEmitter {
     }
 
     // Resolve CWD — worktree path for project work, global agent dir otherwise
-    const agentDir = (options.projectId && options.branchName)
-      ? orgPath(agentOrgId, 'agents', agentId, 'projects', options.projectId, options.branchName)
-      : orgPath(agentOrgId, 'agents', agentId);
+    let agentDir;
+    if (options.projectId && options.branchName) {
+      agentDir = orgPath(agentOrgId, 'agents', agentId, 'projects', options.projectId, options.branchName);
+    } else if (options.projectId && !options.branchName) {
+      // Coordinator (or contributor without active deliverable) in project context —
+      // give them a worktree on the default branch so they can browse the repo.
+      const projectRepoPath = orgPath(agentOrgId, 'projects', options.projectId, 'repo.git');
+      if (fs.existsSync(projectRepoPath)) {
+        const defaultBranch = git.getDefaultBranch(projectRepoPath);
+        agentDir = orgPath(agentOrgId, 'agents', agentId, 'projects', options.projectId, defaultBranch);
+        if (!fs.existsSync(agentDir)) {
+          try {
+            git.createWorktree(projectRepoPath, agentDir, defaultBranch);
+          } catch (e) {
+            console.error(`[executor] Failed to create worktree for coordinator: ${e.message}`);
+            agentDir = orgPath(agentOrgId, 'agents', agentId);
+          }
+        }
+      } else {
+        agentDir = orgPath(agentOrgId, 'agents', agentId);
+      }
+    } else {
+      agentDir = orgPath(agentOrgId, 'agents', agentId);
+    }
     fs.mkdirSync(agentDir, { recursive: true });
 
     // Branch change detection — CLI runtimes tie sessions to CWD, so when the branch
@@ -627,10 +649,27 @@ curl -s ${API_BASE}/api/projects/{project_id} -H "Authorization: Bearer ${apiTok
           ? myDeliverables.map(d => `  - [${d.status}] "${d.name}" (milestone: ${d.milestone_name}, branch: ${d.branch_name || 'unassigned'}, id: ${d.id})${d.pass_criteria ? `\n    Pass criteria: ${d.pass_criteria}` : ''}`).join('\n')
           : '  (none assigned)';
 
+        // Read vault specs for context injection
+        const projectRepoPath = orgPath(agentOrgId, 'projects', options.projectId, 'repo.git');
+        let vaultDesignSpec = null, vaultTechSpec = null;
+        try {
+          vaultDesignSpec = git.readVaultFile(projectRepoPath, 'design-spec.md');
+        } catch {}
+        try {
+          vaultTechSpec = git.readVaultFile(projectRepoPath, 'tech-spec.md');
+        } catch {}
+
+        const projectContext = [`## Project: ${project.name}`];
+        if (project.description) projectContext.push(project.description);
+        if (vaultDesignSpec) projectContext.push(`\n### Design Spec\n${vaultDesignSpec}`);
+        if (vaultTechSpec) projectContext.push(`\n### Tech Spec\n${vaultTechSpec}`);
+        systemParts.push(projectContext.join('\n'));
+
         // --- Contributor skill (all project agents get this) ---
         writeSkill('nebula-project-contributor',
           'Use when doing implementation work on project deliverables — coding, creating branches, pushing changes, creating PRs, updating deliverable status.',
           `You are working on project "${project.name}" as ${agentRole}.
+${project.description ? `Project description: ${project.description}` : ''}
 ${options.branchName ? `Your current branch: ${options.branchName}` : ''}
 Working directory: ${agentDir}
 Git remote: ${project.git_remote_url} (${project.git_provider})
@@ -675,7 +714,13 @@ curl -s ${API_BASE}/api/projects/${project.id}/pr -H "Authorization: Bearer ${ap
 ## Post to Project Conversation
 curl -s -X POST ${API_BASE}/api/projects/${project.id}/messages \\
   -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
-  -d '{"content":"Message text","agent_id":"${agentId}"}'`);
+  -d '{"content":"Message text","agent_id":"${agentId}"}'
+
+## Vault (shared project files)
+# List vault files
+curl -s ${API_BASE}/api/projects/${project.id}/vault -H "Authorization: Bearer ${apiToken}"
+# Read a vault file
+curl -s ${API_BASE}/api/projects/${project.id}/vault/{filename} -H "Authorization: Bearer ${apiToken}"`);
 
         // --- Coordinator skill (only for coordinators — manages project structure) ---
         if (agentRole === 'coordinator') {
@@ -692,7 +737,7 @@ The project is in a not-ready state. The following prerequisites are not met:
 ${failing}
 
 You MUST guide the user to resolve these before creating milestones or dispatching work. You can still discuss design, write spec files, and help the user set up the project. Focus on getting the project to a ready state.
-For spec files: write design-spec.md and tech-spec.md to the project vault/ directory.`;
+For spec files: use the vault write API (see "Vault" section below) to create design-spec.md and tech-spec.md.`;
           } else {
             readinessBlock = '\n\n## Project Status: READY\nAll prerequisites are met. You may create milestones and dispatch work.';
           }
@@ -707,7 +752,10 @@ For spec files: write design-spec.md and tech-spec.md to the project vault/ dire
 
           writeSkill('nebula-project-coordinator',
             'Use when organizing the project — creating milestones/deliverables, assigning work to agents, reviewing PRs, merging, and monitoring progress.',
-            `You are the coordinator of project "${project.name}".${readinessBlock}
+            `You are the coordinator of project "${project.name}".
+${project.description ? `Project description: ${project.description}` : ''}
+Your working directory is a checkout of the project repository — you can browse and read all source code directly.
+You must ONLY work within this project. Do not access other repositories or projects.${readinessBlock}
 
 ## Autonomous Execution
 Your primary goal is to push the project forward autonomously. After each interaction:
@@ -773,6 +821,16 @@ curl -s -X DELETE ${API_BASE}/api/projects/${project.id}/agents/{agent_id} \\
 curl -s -X POST "${API_BASE}/api/projects/${project.id}/pr/{number}/merge" \\
   -H "Authorization: Bearer ${apiToken}"
 Add \`?delete_branch=true\` query param to delete the source branch after merge (recommended).
+
+## Vault (shared project files — specs, assets, references)
+# List vault files
+curl -s ${API_BASE}/api/projects/${project.id}/vault -H "Authorization: Bearer ${apiToken}"
+# Read a vault file
+curl -s ${API_BASE}/api/projects/${project.id}/vault/{filename} -H "Authorization: Bearer ${apiToken}"
+# Write/update a vault file (only during setup — project status must be not_ready)
+curl -s -X PUT ${API_BASE}/api/projects/${project.id}/vault/{filename} \\
+  -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" \\
+  -d '{"content":"file content here"}'
 
 ## Dispatching Work
 To assign work to contributors:

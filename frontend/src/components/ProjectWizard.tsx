@@ -92,6 +92,7 @@ export default function ProjectWizard({ agents, onClose, onCreated }: Props) {
       };
       if (repoMode === 'link_existing' && selectedRepo) {
         data.git_remote_url = selectedRepo.ssh_url || selectedRepo.clone_url;
+        data.git_clone_url = selectedRepo.clone_url; // HTTPS URL for authenticated clone
       } else if (repoMode === 'create_new') {
         // For new repos, construct URL from provider info
         if (provider === 'gitea' && validation) {

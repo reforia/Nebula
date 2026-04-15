@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import crypto from 'crypto';
 import { Router } from 'express';
 import { getAll, getOne, run, getOrgSetting, orgPath } from '../db.js';
@@ -77,7 +78,7 @@ router.get('/', (req, res) => {
 
 // POST /api/projects — create project (supports full scaffold in one call)
 router.post('/', async (req, res) => {
-  const { name, description, git_remote_url, git_api_url, git_provider, git_insecure_ssl, coordinator_agent_id, auto_merge, agents, milestones,
+  const { name, description, git_remote_url, git_clone_url, git_api_url, git_provider, git_insecure_ssl, coordinator_agent_id, auto_merge, agents, milestones,
     git_token, repo_mode, repo_full_name, repo_name, repo_private } = req.body;
 
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
@@ -151,8 +152,12 @@ router.post('/', async (req, res) => {
   const repoGitPath = orgPath(req.orgId, 'projects', id, 'repo.git');
   try {
     if (repo_mode === 'link_existing' && git_remote_url) {
-      // Clone existing repo
-      git.cloneRepo(repoGitPath, git_remote_url.trim());
+      // Clone existing repo — use HTTPS+token for auth (validated by wizard), fall back to SSH
+      git.cloneRepo(repoGitPath, git_remote_url.trim(), {
+        cloneUrl: git_clone_url?.trim(),
+        token: git_token,
+        insecureSsl: !!git_insecure_ssl,
+      });
       git.ensureScaffold(repoGitPath, { name: name.trim() });
     } else if (repo_mode === 'create_new' && git_token && git_remote_url) {
       // Scaffold new repo and push to remote
@@ -163,6 +168,14 @@ router.post('/', async (req, res) => {
     }
   } catch (e) {
     console.error(`[projects] Git init failed for project ${id}: ${e.message}`);
+    // Roll back — project is unusable without a repo (vault writes, worktrees, etc.)
+    run('DELETE FROM project_deliverables WHERE milestone_id IN (SELECT id FROM project_milestones WHERE project_id = ?)', [id]);
+    run('DELETE FROM project_milestones WHERE project_id = ?', [id]);
+    run('DELETE FROM project_agents WHERE project_id = ?', [id]);
+    run('DELETE FROM projects WHERE id = ?', [id]);
+    // Clean up any partial repo dir
+    try { fs.rmSync(repoGitPath, { recursive: true, force: true }); } catch {}
+    return res.status(500).json({ error: `Git repository initialization failed: ${e.message}` });
   }
 
   // Store git token as project secret if provided
@@ -1196,8 +1209,11 @@ router.put('/:id/vault/:path(*)', (req, res) => {
     return res.status(400).json({ error: 'Invalid file path' });
   }
 
+  const repo = repoPath(req.orgId, project.id);
+  if (!fs.existsSync(repo)) {
+    return res.status(500).json({ error: 'Project git repository not initialized — try deleting and recreating the project' });
+  }
   try {
-    const repo = repoPath(req.orgId, project.id);
     git.writeVaultFile(repo, filePath, content);
     updateProjectReadiness(project.id);
     res.json({ ok: true });

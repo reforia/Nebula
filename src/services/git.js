@@ -65,12 +65,60 @@ export function initProjectRepo(repoPath, remoteUrl, { name = 'Project', descrip
 }
 
 /**
- * Clone an existing remote repo as a bare repo.
+ * Build an authenticated HTTPS clone URL by embedding token.
+ * Supports Gitea/GitHub URL formats.
  */
-export function cloneRepo(repoPath, remoteUrl) {
+function buildAuthenticatedUrl(url, token) {
+  if (!token || !url) return url;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      parsed.username = token;
+      parsed.password = '';
+      return parsed.toString();
+    }
+  } catch {}
+  return url;
+}
+
+/**
+ * Clone an existing remote repo as a bare repo.
+ * For HTTPS URLs, embeds token for auth and handles self-signed certs.
+ * For SSH URLs, auto-accepts new host keys for non-interactive use.
+ * @param {string} repoPath - where to create the bare repo
+ * @param {string} remoteUrl - the SSH remote URL to store as origin
+ * @param {Object} [options]
+ * @param {string} [options.cloneUrl] - HTTPS clone URL (preferred for initial clone when token available)
+ * @param {string} [options.token] - API token for HTTPS auth
+ * @param {boolean} [options.insecureSsl] - skip SSL verification (self-signed certs)
+ */
+export function cloneRepo(repoPath, remoteUrl, { cloneUrl, token, insecureSsl } = {}) {
   const parentDir = path.dirname(repoPath);
   fs.mkdirSync(parentDir, { recursive: true });
-  exec(`${GIT} clone --bare "${remoteUrl}" "${repoPath}"`);
+
+  // Prefer HTTPS clone with token (most reliable — no SSH key setup needed)
+  const useHttps = cloneUrl && token && /^https?:\/\//.test(cloneUrl);
+  let url;
+  const configFlags = [];
+
+  if (useHttps) {
+    url = buildAuthenticatedUrl(cloneUrl, token);
+    if (insecureSsl) configFlags.push('-c http.sslVerify=false');
+  } else {
+    // SSH clone — auto-accept new host keys for non-interactive environments
+    url = remoteUrl;
+    configFlags.push('-c core.sshCommand="ssh -o StrictHostKeyChecking=accept-new"');
+  }
+
+  const flags = configFlags.length > 0 ? configFlags.join(' ') + ' ' : '';
+  exec(`${GIT} ${flags}clone --bare "${url}" "${repoPath}"`);
+
+  // After HTTPS clone, set origin to SSH URL for ongoing git operations (agents use SSH keys to push)
+  if (useHttps && remoteUrl && remoteUrl !== cloneUrl) {
+    try {
+      exec(`${GIT} --git-dir="${repoPath}" remote set-url origin "${remoteUrl}"`);
+    } catch {}
+  }
 }
 
 /**
