@@ -1,0 +1,13 @@
+# Global owner — all files default to Jayden
+* @reforia
+
+# Core runtime
+/src/ @reforia
+/agent-app/ @reforia
+/agent-client/ @reforia
+
+# Infrastructure
+/Dockerfile @reforia
+/docker-compose.yml @reforia
+/migrations/ @reforia
+/.github/ @reforia
