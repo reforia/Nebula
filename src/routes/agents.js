@@ -217,6 +217,31 @@ router.post('/:id/reset-session', (req, res) => {
   res.json({ ok: true, session_id: newSessionId });
 });
 
+// PUT /api/agents/:id/compact — agent posts its session compact during dreaming
+router.put('/:id/compact', (req, res) => {
+  const agent = getOne('SELECT * FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const { summary } = req.body;
+  if (!summary || typeof summary !== 'string' || !summary.trim()) {
+    return res.status(400).json({ error: 'summary is required' });
+  }
+
+  // Find the agent's main conversation (not project-scoped)
+  const conversation = getOne(
+    'SELECT id FROM conversations WHERE agent_id = ? AND project_id IS NULL ORDER BY created_at DESC LIMIT 1',
+    [agent.id]
+  );
+  if (!conversation) return res.status(404).json({ error: 'No conversation found' });
+
+  run(
+    "UPDATE conversations SET compact_context = ?, updated_at = datetime('now') WHERE id = ?",
+    [summary.trim(), conversation.id]
+  );
+
+  res.json({ ok: true });
+});
+
 // POST /api/agents/:id/generate-remote-token
 router.post('/:id/generate-remote-token', (req, res) => {
   const agent = getOne('SELECT * FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
