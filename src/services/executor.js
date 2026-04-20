@@ -15,6 +15,19 @@ import * as git from './git.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const API_BASE = (process.env.NEBULA_URL || 'http://localhost:8080').replace(/\/+$/, '');
 
+// {{KEY}} template resolvers. Skills receive env-var references (`${KEY}`)
+// so the agent sees only the variable name — the actual value lives in the
+// process env. MCP configs receive the literal value because the MCP server
+// runs as a sibling process and the agent never sees the config.
+function resolveSecretsAsEnvRefs(text, secretMap) {
+  return text.replace(/\{\{([A-Z0-9_]+)\}\}/g, (match, key) =>
+    secretMap.has(key) ? `\${${key}}` : match);
+}
+function resolveSecretsAsValues(text, secretMap) {
+  return text.replace(/\{\{([A-Z0-9_]+)\}\}/g, (match, key) =>
+    secretMap.has(key) ? secretMap.get(key) : match);
+}
+
 class AgentExecutor extends EventEmitter {
   constructor() {
     super();
@@ -189,26 +202,20 @@ class AgentExecutor extends EventEmitter {
     }
   }
 
-  async _execute({ agentId, prompt, options }) {
-    const agent = getOne('SELECT * FROM agents WHERE id = ?', [agentId]);
-    if (!agent) throw new Error(`Agent ${agentId} not found`);
-    if (!agent.enabled) throw new Error(`Agent ${agentId} is disabled`);
-
-    const agentOrgId = agent.org_id;
-    const contextKey = this._contextKey(agentId, options.projectId, options.branchName);
-
-    // Resolve runtime via registry — handles agent override, org default, model compat fallback
-    const backend = registry.resolveForAgent(agent, agentOrgId);
-    const runtime = backend.cliId;
-
-    // Resolve conversation for session management
+  /**
+   * Find the conversation for this execution, creating one if necessary.
+   * Resolution order:
+   *  1. explicit conversationId from the caller
+   *  2. project-scoped conversation (agent + project, auto-created if absent)
+   *  3. most recent conversation for the agent
+   *  4. brand-new "General" conversation
+   * Kept outside _execute so session-management logic is readable in isolation.
+   */
+  _resolveConversation(agent, agentId, options) {
     let conversation = null;
     if (options.conversationId) {
       conversation = getOne('SELECT * FROM conversations WHERE id = ?', [options.conversationId]);
     }
-    // For project context without explicit conversationId, find/create a project-scoped
-    // conversation for this agent. This gives each agent its own session_id per project,
-    // avoiding clashes with the agent's regular conversation session.
     if (!conversation && options.projectId) {
       conversation = getOne(
         'SELECT * FROM conversations WHERE agent_id = ? AND project_id = ? ORDER BY created_at DESC LIMIT 1',
@@ -240,14 +247,22 @@ class AgentExecutor extends EventEmitter {
       );
       conversation = getOne('SELECT * FROM conversations WHERE id = ?', [convId]);
     }
+    return conversation;
+  }
 
-    // Resolve CWD — worktree path for project work, global agent dir otherwise
+  /**
+   * Resolve the working directory (CWD) for the CLI process.
+   *  - Project + branch: worktree path for that branch.
+   *  - Project, no branch: worktree on the project's default branch (coordinator use).
+   *    If the repo isn't ready yet, fall back to the agent's global dir.
+   *  - Neither: the agent's global dir.
+   * Side effect: ensures the directory exists on disk.
+   */
+  _resolveAgentDir(agentId, agentOrgId, options) {
     let agentDir;
     if (options.projectId && options.branchName) {
       agentDir = orgPath(agentOrgId, 'agents', agentId, 'projects', options.projectId, options.branchName);
     } else if (options.projectId && !options.branchName) {
-      // Coordinator (or contributor without active deliverable) in project context —
-      // give them a worktree on the default branch so they can browse the repo.
       const projectRepoPath = orgPath(agentOrgId, 'projects', options.projectId, 'repo.git');
       if (fs.existsSync(projectRepoPath)) {
         const defaultBranch = git.getDefaultBranch(projectRepoPath);
@@ -267,84 +282,122 @@ class AgentExecutor extends EventEmitter {
       agentDir = orgPath(agentOrgId, 'agents', agentId);
     }
     fs.mkdirSync(agentDir, { recursive: true });
+    return agentDir;
+  }
 
-    // Branch change detection — CLI runtimes tie sessions to CWD, so when the branch
-    // changes (deliverable completed, agent moves to next), we must reset the
-    // session to avoid stale session errors from a CWD mismatch.
-    const resolvedBranch = options.branchName || null;
+  /**
+   * Resolve timeout + recovery token budget using the precedence documented
+   * in CLAUDE.md (explicit > per-scope > org default).
+   */
+  _resolveExecutionParams(agent, agentOrgId, options) {
+    const orgDefaultTimeout = parseInt(getOrgSetting(agentOrgId, 'default_timeout_ms')) || 600000;
+    let timeoutMs;
+    if (options.timeoutMs) {
+      timeoutMs = options.timeoutMs;
+    } else if (options.projectId) {
+      const proj = getOne('SELECT timeout_ms FROM projects WHERE id = ?', [options.projectId]);
+      timeoutMs = proj?.timeout_ms || orgDefaultTimeout;
+    } else {
+      timeoutMs = agent.timeout_ms || orgDefaultTimeout;
+    }
+    const recoveryTokenBudget = agent.recovery_token_budget
+      || parseInt(getOrgSetting(agentOrgId, 'recovery_token_budget')) || 25000;
+    return { timeoutMs, recoveryTokenBudget };
+  }
+
+  /**
+   * Record a success or error usage event. Swallows insert errors (already
+   * logged) so a DB write failure can't mask the actual execution result.
+   */
+  _logUsageEvent(status, { agentOrgId, agentId, conversationId, runtime, model, result, error }) {
+    try {
+      if (status === 'success') {
+        run(
+          `INSERT INTO usage_events (id, org_id, agent_id, conversation_id, backend, model, tokens_in, tokens_out, total_cost, duration_ms, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'success')`,
+          [generateId(), agentOrgId, agentId, conversationId, runtime, model,
+           result.usage?.input_tokens || 0, result.usage?.output_tokens || 0,
+           result.total_cost_usd || 0, result.duration_ms || 0]
+        );
+      } else {
+        run(
+          `INSERT INTO usage_events (id, org_id, agent_id, conversation_id, backend, model, duration_ms, status, error_message)
+           VALUES (?, ?, ?, ?, ?, ?, 0, 'error', ?)`,
+          [generateId(), agentOrgId, agentId, conversationId, runtime, model, String(error?.message || error).slice(0, 1000)]
+        );
+      }
+    } catch (e) {
+      console.error('[executor] Failed to log usage event:', e.message);
+    }
+  }
+
+  /**
+   * Detect conditions that require a CLI session reset:
+   *  - branch change while a session was already initialized (CLI ties sessions to CWD)
+   *  - runtime change (different CLIs have incompatible session IDs)
+   * Persists the reset to the DB and returns the updated conversation object.
+   * Returns `{ conversation, sessionWasReset }`.
+   */
+  _detectSessionResets(conversation, runtime, resolvedBranch) {
     let sessionWasReset = false;
     if (conversation.session_initialized && conversation.session_branch !== resolvedBranch) {
       console.log(`[executor] Branch changed for conversation ${conversation.id}: "${conversation.session_branch}" → "${resolvedBranch}", resetting session`);
       const newSessionId = generateId();
-      run('UPDATE conversations SET session_initialized = 0, session_id = ?, session_branch = ?, updated_at = datetime(\'now\') WHERE id = ?',
-        [newSessionId, resolvedBranch, conversation.id]);
+      run(
+        "UPDATE conversations SET session_initialized = 0, session_id = ?, session_branch = ?, updated_at = datetime('now') WHERE id = ?",
+        [newSessionId, resolvedBranch, conversation.id]
+      );
       conversation = { ...conversation, session_initialized: 0, session_id: newSessionId, session_branch: resolvedBranch };
       sessionWasReset = true;
     }
-
-    // Runtime change detection — different CLIs have incompatible session IDs
-    // (e.g. Claude Code vs OpenCode). Reset session when runtime changes.
     if (conversation.session_initialized && conversation.session_runtime && conversation.session_runtime !== runtime) {
       console.log(`[executor] Runtime changed for conversation ${conversation.id}: "${conversation.session_runtime}" → "${runtime}", resetting session`);
       const newSessionId = generateId();
-      run('UPDATE conversations SET session_initialized = 0, session_id = ?, session_runtime = NULL, updated_at = datetime(\'now\') WHERE id = ?',
-        [newSessionId, conversation.id]);
+      run(
+        "UPDATE conversations SET session_initialized = 0, session_id = ?, session_runtime = NULL, updated_at = datetime('now') WHERE id = ?",
+        [newSessionId, conversation.id]
+      );
       conversation = { ...conversation, session_initialized: 0, session_id: newSessionId, session_runtime: null };
       sessionWasReset = true;
     }
+    return { conversation, sessionWasReset };
+  }
 
-    // --- Assemble system prompt and skills (Nebula concerns) ---
+  /**
+   * Load the effective secret set for this execution.
+   *  - Project context: org secrets + project secrets (agent secrets excluded for isolation)
+   *  - Agent context: org secrets + agent secrets
+   * Returns `{ secretMap, secretEnvVars }`. `secretEnvVars` is a plain object
+   * suitable for passing to the CLI child process env.
+   */
+  _resolveSecrets(agentOrgId, agentId, options) {
+    const orgSecrets = getAll('SELECT key, value FROM org_secrets WHERE org_id = ?', [agentOrgId]);
+    const secretMap = new Map(orgSecrets.map(s => [s.key, decrypt(s.value)]));
 
-    const systemParts = [];
-    const skillDefinitions = []; // Accumulated for remote transfer
-    const apiToken = getOrgSetting(agentOrgId, 'internal_api_token');
-    const ccSkillsDir = path.join(agentDir, '.claude', 'skills');
-
-    // Clean Nebula-managed skills from previous executions (context may change between runs)
-    // Only removes nebula-* and custom-* prefixed skills — leaves user-created skills untouched
-    if (fs.existsSync(ccSkillsDir)) {
-      for (const entry of fs.readdirSync(ccSkillsDir)) {
-        if (entry.startsWith('nebula-') || entry.startsWith('custom-')) {
-          try { fs.rmSync(path.join(ccSkillsDir, entry), { recursive: true }); } catch {}
-        }
-      }
+    if (options.projectId) {
+      const projectSecrets = getAll('SELECT key, value FROM project_secrets WHERE project_id = ?', [options.projectId]);
+      for (const s of projectSecrets) secretMap.set(s.key, decrypt(s.value));
+    } else {
+      const agentSecrets = getAll('SELECT key, value FROM agent_secrets WHERE agent_id = ?', [agentId]);
+      for (const s of agentSecrets) secretMap.set(s.key, decrypt(s.value));
     }
 
-    function writeSkill(name, description, content) {
-      const skillContent = `---\nname: ${name}\ndescription: ${description}\n---\n\n${content}`;
-      skillDefinitions.push({ name, content: skillContent });
-      // Disk-based CLIs read skills from .claude/skills/; systemprompt CLIs get them inlined
-      if (backend.skillInjection === 'disk') {
-        const dir = path.join(ccSkillsDir, name);
-        fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(path.join(dir, 'SKILL.md'), skillContent);
-      }
-    }
+    const secretEnvVars = {};
+    for (const [key, value] of secretMap) secretEnvVars[key] = value;
+    return { secretMap, secretEnvVars };
+  }
 
-    // Global knowledge (org-scoped)
-    const globalPath = orgPath(agentOrgId, 'global', 'CLAUDE.md');
-    if (fs.existsSync(globalPath)) {
-      const globalKnowledge = fs.readFileSync(globalPath, 'utf-8').trim();
-      if (globalKnowledge) systemParts.push(globalKnowledge);
-    }
-
-    // Project knowledge (from worktree — branch-specific version)
-    if (options.projectId && options.branchName) {
-      const projectClaudeMd = path.join(agentDir, 'CLAUDE.md');
-      if (fs.existsSync(projectClaudeMd)) {
-        const projectKnowledge = fs.readFileSync(projectClaudeMd, 'utf-8').trim();
-        if (projectKnowledge) systemParts.push(projectKnowledge);
-      }
-    }
-
-    // --- Built-in Skills ---
-
-    // Task management
+  /**
+   * Write the nebula-tasks skill — curl recipes + current task list so the
+   * agent can manage its own cron and webhook tasks.
+   */
+  _buildTasksSkill(skillCtx) {
+    const { agentId, apiToken } = skillCtx;
     const existingTasks = getAll('SELECT id, name, cron_expression, enabled, prompt FROM tasks WHERE agent_id = ?', [agentId]);
     const taskList = existingTasks.length > 0
       ? existingTasks.map(t => `  - ${t.name} (id: ${t.id}, cron: ${t.cron_expression}, enabled: ${t.enabled})`).join('\n')
       : '  (none)';
-    writeSkill('nebula-tasks',
+    this._writeSkill(skillCtx, 'nebula-tasks',
       'Manage scheduled and webhook tasks. Use when the user asks to schedule, list, update, or delete recurring tasks, or create webhook-triggered tasks.',
       `Manage your own tasks via the Nebula API. Use the Bash tool with curl.
 
@@ -380,13 +433,18 @@ curl -s -X PUT ${API_BASE}/api/tasks/{task_id} \\
 curl -s -X DELETE ${API_BASE}/api/tasks/{task_id} -H "Authorization: Bearer ${apiToken}"
 
 Cron format: minute hour day-of-month month day-of-week (e.g. "0 9 * * *" = daily 9am)`);
+  }
 
-    // Workspace structure convention
-    writeSkill('nebula-workspace',
+  /**
+   * Write the nebula-workspace skill — folder-structure convention so the
+   * agent knows where to put scratch files, vault reads, memory writes, etc.
+   */
+  _buildWorkspaceSkill(skillCtx) {
+    this._writeSkill(skillCtx, 'nebula-workspace',
       'Understand your workspace folder structure. Use when deciding where to store files, notes, or work output.',
       `Your workspace has a structured layout. Each location has a distinct purpose — do not overlap.
 
-Working directory: ${agentDir}
+Working directory: ${skillCtx.agentDir}
 
 ## Folder Structure
 
@@ -416,9 +474,15 @@ Working directory: ${agentDir}
 
 ### .claude/skills/ — Skills (managed by Nebula)
 - Do not edit directly — use the nebula-skills skill to create/update skills via API`);
+  }
 
-    // Skill management
-    writeSkill('nebula-skills',
+  /**
+   * Write the nebula-skills skill — API recipes for managing skills (agent
+   * can teach itself new capabilities by POSTing new skill definitions).
+   */
+  _buildSkillMgmtSkill(skillCtx) {
+    const { agentId, agentOrgId, apiToken } = skillCtx;
+    this._writeSkill(skillCtx, 'nebula-skills',
       'Create, list, update, and delete skills via the Nebula API. Use when creating reusable capabilities for yourself or the organization.',
       `Manage skills via the Nebula API. Use the Bash tool with curl.
 
@@ -459,14 +523,24 @@ curl -s -X DELETE ${API_BASE}/api/skills/{skill_id} -H "Authorization: Bearer ${
 Two distinct mechanisms — do not mix them:
 - **In Bash commands (current execution):** Secrets are injected as environment variables. Use \`$SECRET_NAME\` directly (e.g. \`curl -H "Authorization: token $GITEA_TOKEN" ...\`).
 - **In skill content (when authoring a skill via the API above):** Use \`{{SECRET_NAME}}\` template syntax. Nebula resolves these to \`$SECRET_NAME\` env var references when the skill is loaded. Do NOT write \`$SECRET_NAME\` in skill content — it won't be resolved.`);
+  }
 
-    // Mail
-    if (getOrgSetting(agentOrgId, 'mail_enabled') === '1' || getOrgSetting(agentOrgId, 'imap_host') || getOrgSetting(agentOrgId, 'smtp_host')) {
-      const notifyTo = getOrgSetting(agentOrgId, 'notify_email_to') || '';
-      const smtpFrom = getOrgSetting(agentOrgId, 'smtp_from') || '';
-      writeSkill('nebula-mail',
-        'Read and send email. Use when the user asks to check mail, read emails, search inbox, send messages, or reply to emails.',
-        `Read and send email via the Nebula API. Use the Bash tool with curl.
+  /**
+   * Write the nebula-mail + nebula-html-report skills when the org has any
+   * mail config present. Skipped silently when there's nothing to send through.
+   */
+  _buildMailSkills(skillCtx) {
+    const { agentOrgId, apiToken } = skillCtx;
+    const mailConfigured = getOrgSetting(agentOrgId, 'mail_enabled') === '1'
+      || getOrgSetting(agentOrgId, 'imap_host')
+      || getOrgSetting(agentOrgId, 'smtp_host');
+    if (!mailConfigured) return;
+
+    const notifyTo = getOrgSetting(agentOrgId, 'notify_email_to') || '';
+    const smtpFrom = getOrgSetting(agentOrgId, 'smtp_from') || '';
+    this._writeSkill(skillCtx, 'nebula-mail',
+      'Read and send email. Use when the user asks to check mail, read emails, search inbox, send messages, or reply to emails.',
+      `Read and send email via the Nebula API. Use the Bash tool with curl.
 Auth header: Authorization: Bearer ${apiToken}
 ${notifyTo ? `Default recipient: ${notifyTo}` : ''}
 ${smtpFrom ? `Sending from: ${smtpFrom}` : ''}
@@ -496,40 +570,55 @@ curl -s -X POST ${API_BASE}/api/mail/send \\
 When sending HTML, use the \`html\` field (not \`body\`). For reports, always use the nebula-html-report skill for formatting.
 Optional fields: cc, bcc, in_reply_to (message ID for threading)`);
 
-      // HTML report component library (injected alongside mail)
-      writeSkill('nebula-html-report',
-        'HTML email report component library. Reference when composing any HTML email — provides the standard Nebula layout, color palette, priority badges, finding cards, data tables, and a full composition example. Use these components instead of inventing your own styles.',
-        HTML_REPORT_SKILL);
-    }
+    // Component library reference for composing HTML emails — paired with nebula-mail.
+    this._writeSkill(skillCtx, 'nebula-html-report',
+      'HTML email report component library. Reference when composing any HTML email — provides the standard Nebula layout, color palette, priority badges, finding cards, data tables, and a full composition example. Use these components instead of inventing your own styles.',
+      HTML_REPORT_SKILL);
+  }
 
-    // Peer agents awareness
-    const peerAgents = getAll(
+  /**
+   * Load peer agents (all agents in the org except self). Returned as data
+   * so both the skill block (for nebula-agents) and the system-prompt block
+   * (for the "team of N agents" identity hint) can read from one source.
+   */
+  _loadPeerAgents(agentOrgId, agentId) {
+    return getAll(
       'SELECT id, name, role, emoji, enabled, execution_mode, remote_device FROM agents WHERE org_id = ? AND id != ?',
       [agentOrgId, agentId]
     );
-    if (peerAgents.length > 0) {
-      const peerList = peerAgents.map(p => {
-        let info = `  - ${p.emoji} ${p.name} (id: ${p.id}, role: ${p.role || 'none'}, ${p.enabled ? 'active' : 'disabled'})`;
-        if (p.execution_mode === 'remote' && p.remote_device) {
-          try {
-            const dev = JSON.parse(p.remote_device);
-            const specs = [dev.platform, dev.arch, dev.cpu, dev.ram ? `${dev.ram} RAM` : null, dev.gpu].filter(Boolean).join(', ');
-            if (specs) info += `\n    Hardware: ${specs}`;
-            if (dev.toolchains) info += `\n    Toolchains: ${dev.toolchains}`;
-          } catch {}
-        }
-        return info;
-      }).join('\n');
-      const notifySection = options.projectId ? '' : `
+  }
+
+  /**
+   * Write the nebula-agents skill — peer-agent directory + @mention usage.
+   * Skipped when the agent has no peers to talk to.
+   */
+  _buildAgentsSkill(skillCtx, peerAgents) {
+    if (peerAgents.length === 0) return;
+    const { agentId, apiToken, options } = skillCtx;
+    const peerList = peerAgents.map(p => {
+      let info = `  - ${p.emoji} ${p.name} (id: ${p.id}, role: ${p.role || 'none'}, ${p.enabled ? 'active' : 'disabled'})`;
+      if (p.execution_mode === 'remote' && p.remote_device) {
+        try {
+          const dev = JSON.parse(p.remote_device);
+          const specs = [dev.platform, dev.arch, dev.cpu, dev.ram ? `${dev.ram} RAM` : null, dev.gpu].filter(Boolean).join(', ');
+          if (specs) info += `\n    Hardware: ${specs}`;
+          if (dev.toolchains) info += `\n    Toolchains: ${dev.toolchains}`;
+        } catch {}
+      }
+      return info;
+    }).join('\n');
+    // @notify is main-context only — project conversations route all responses back
+    // to the coordinator so there's no fire-and-forget sidebar.
+    const notifySection = options.projectId ? '' : `
 
 ## Notify another agent (fire-and-forget)
 Write @notify TheirName to send a task to their own conversation.
 They process it independently — no response comes back here.
 ${peerAgents.length > 0 ? `Example: "@notify ${peerAgents[0].name} please handle this when you get a chance."` : ''}`;
 
-      writeSkill('nebula-agents',
-        'Interact with peer agents. Use when you need to check what other agents are doing, read their messages, or ask them for help.',
-        `Communicate with peer agents in your organization via the Nebula API. Use the Bash tool with curl.
+    this._writeSkill(skillCtx, 'nebula-agents',
+      'Interact with peer agents. Use when you need to check what other agents are doing, read their messages, or ask them for help.',
+      `Communicate with peer agents in your organization via the Nebula API. Use the Bash tool with curl.
 
 Your Agent ID: ${agentId}
 API base: ${API_BASE}
@@ -550,22 +639,24 @@ They will see your full message and respond here — the user sees the exchange 
 ${peerAgents.length > 0 ? `Example: "Let me check with @${peerAgents[0].name} about this."` : ''}${notifySection}
 
 IMPORTANT: Write the agent's exact name after @ — e.g. @${peerAgents.length > 0 ? peerAgents[0].name : 'AgentName'}. Nebula handles the routing automatically. Do NOT use curl or API calls for inter-agent communication.`);
-    }
+  }
 
-    // Project management — global context: list/create projects
-    // Skip generic project skill when in project context — split skills replace it
-    if (options.projectId) {
-      // Project-specific skills written below
-    } else {
+  /**
+   * Write the nebula-projects skill — a catalog of projects in this org and
+   * a one-call scaffold recipe. Skipped when the agent is executing inside
+   * a specific project (the project-context skills replace this one).
+   */
+  _buildProjectsSkill(skillCtx) {
+    const { agentId, agentOrgId, apiToken, options } = skillCtx;
+    if (options.projectId) return;
     const existingProjects = getAll('SELECT id, name, status FROM projects WHERE org_id = ?', [agentOrgId]);
     const projectList = existingProjects.length > 0
       ? existingProjects.map(p => `  - ${p.name} (id: ${p.id}, ${p.status})`).join('\n')
       : '  (none)';
-    // Load available agents for the skill context
     const availableAgents = getAll('SELECT id, name, emoji, role FROM agents WHERE org_id = ? AND enabled = 1', [agentOrgId]);
     const agentsList = availableAgents.map(a => `  - ${a.emoji} ${a.name}: id="${a.id}" ${a.role ? `(${a.role})` : ''}`).join('\n');
 
-    writeSkill('nebula-projects',
+    this._writeSkill(skillCtx, 'nebula-projects',
       'Use when creating a new project, linking a repo, or checking project status. Supports full project scaffold in one call.',
       `Manage multi-agent projects via the Nebula API. Use the Bash tool with curl.
 
@@ -625,50 +716,75 @@ Tell the user the project has been created and they should switch to the **proje
 
 ## Get Project Detail
 curl -s ${API_BASE}/api/projects/{project_id} -H "Authorization: Bearer ${apiToken}"`);
+  }
+
+  /**
+   * Project-scoped skill bundle (entry point). Skipped when not executing in
+   * a project context. Loads the shared project state once, then delegates
+   * to the four sub-helpers — each responsible for one distinct skill group.
+   */
+  _buildProjectContextSkills(skillCtx) {
+    const { agentId, options } = skillCtx;
+    if (!options.projectId) return;
+
+    const project = getOne('SELECT * FROM projects WHERE id = ?', [options.projectId]);
+    if (!project) return;
+
+    const projectAssignment = getOne(
+      'SELECT * FROM project_agents WHERE project_id = ? AND agent_id = ?',
+      [options.projectId, agentId]
+    );
+    const agentRole = projectAssignment?.role || 'contributor';
+
+    this._pushProjectSpecsToSystemParts(skillCtx, project);
+    this._buildProjectContributorSkill(skillCtx, project, agentRole);
+    if (agentRole === 'coordinator') {
+      this._buildProjectCoordinatorSkill(skillCtx, project);
     }
+    this._buildProjectInfraSkills(skillCtx);
+  }
 
-    // Project skills (when executing in project context)
-    if (options.projectId) {
-      const project = getOne('SELECT * FROM projects WHERE id = ?', [options.projectId]);
-      if (project) {
-        const projectAssignment = getOne(
-          'SELECT * FROM project_agents WHERE project_id = ? AND agent_id = ?',
-          [options.projectId, agentId]
-        );
-        const agentRole = projectAssignment?.role || 'contributor';
+  /**
+   * Inject the project overview + vault spec files into the system prompt so
+   * the agent sees design/tech intent before any tool call. Vault reads are
+   * best-effort — missing files just mean smaller context.
+   */
+  _pushProjectSpecsToSystemParts(skillCtx, project) {
+    const { agentOrgId, options, systemParts } = skillCtx;
+    const projectRepoPath = orgPath(agentOrgId, 'projects', options.projectId, 'repo.git');
+    let vaultDesignSpec = null, vaultTechSpec = null;
+    try { vaultDesignSpec = git.readVaultFile(projectRepoPath, 'design-spec.md'); } catch {}
+    try { vaultTechSpec = git.readVaultFile(projectRepoPath, 'tech-spec.md'); } catch {}
 
-        // Load this agent's assigned deliverables for context
-        const myDeliverables = getAll(
-          `SELECT d.*, m.name as milestone_name FROM project_deliverables d
-           JOIN project_milestones m ON d.milestone_id = m.id
-           WHERE d.assigned_agent_id = ? AND m.project_id = ?
-           ORDER BY d.status = 'in_progress' DESC, d.status = 'pending' DESC, d.sort_order`,
-          [agentId, options.projectId]
-        );
-        const deliverableList = myDeliverables.length > 0
-          ? myDeliverables.map(d => `  - [${d.status}] "${d.name}" (milestone: ${d.milestone_name}, branch: ${d.branch_name || 'unassigned'}, id: ${d.id})${d.pass_criteria ? `\n    Pass criteria: ${d.pass_criteria}` : ''}`).join('\n')
-          : '  (none assigned)';
+    const projectContext = [`## Project: ${project.name}`];
+    if (project.description) projectContext.push(project.description);
+    if (vaultDesignSpec) projectContext.push(`\n### Design Spec\n${vaultDesignSpec}`);
+    if (vaultTechSpec) projectContext.push(`\n### Tech Spec\n${vaultTechSpec}`);
+    systemParts.push(projectContext.join('\n'));
+  }
 
-        // Read vault specs for context injection
-        const projectRepoPath = orgPath(agentOrgId, 'projects', options.projectId, 'repo.git');
-        let vaultDesignSpec = null, vaultTechSpec = null;
-        try {
-          vaultDesignSpec = git.readVaultFile(projectRepoPath, 'design-spec.md');
-        } catch {}
-        try {
-          vaultTechSpec = git.readVaultFile(projectRepoPath, 'tech-spec.md');
-        } catch {}
+  /**
+   * Write nebula-project-contributor — implementation workflow for anyone
+   * assigned to the project (coordinator included — they get both skills).
+   * Loads the agent's own deliverables inline so the skill lists what's on
+   * their plate at runtime.
+   */
+  _buildProjectContributorSkill(skillCtx, project, agentRole) {
+    const { agentId, agentDir, apiToken, options } = skillCtx;
+    const myDeliverables = getAll(
+      `SELECT d.*, m.name as milestone_name FROM project_deliverables d
+       JOIN project_milestones m ON d.milestone_id = m.id
+       WHERE d.assigned_agent_id = ? AND m.project_id = ?
+       ORDER BY d.status = 'in_progress' DESC, d.status = 'pending' DESC, d.sort_order`,
+      [agentId, options.projectId]
+    );
+    const deliverableList = myDeliverables.length > 0
+      ? myDeliverables.map(d => `  - [${d.status}] "${d.name}" (milestone: ${d.milestone_name}, branch: ${d.branch_name || 'unassigned'}, id: ${d.id})${d.pass_criteria ? `\n    Pass criteria: ${d.pass_criteria}` : ''}`).join('\n')
+      : '  (none assigned)';
 
-        const projectContext = [`## Project: ${project.name}`];
-        if (project.description) projectContext.push(project.description);
-        if (vaultDesignSpec) projectContext.push(`\n### Design Spec\n${vaultDesignSpec}`);
-        if (vaultTechSpec) projectContext.push(`\n### Tech Spec\n${vaultTechSpec}`);
-        systemParts.push(projectContext.join('\n'));
-
-        // --- Contributor skill (all project agents get this) ---
-        writeSkill('nebula-project-contributor',
-          'Use when doing implementation work on project deliverables — coding, creating branches, pushing changes, creating PRs, updating deliverable status.',
-          `You are working on project "${project.name}" as ${agentRole}.
+    this._writeSkill(skillCtx, 'nebula-project-contributor',
+      'Use when doing implementation work on project deliverables — coding, creating branches, pushing changes, creating PRs, updating deliverable status.',
+      `You are working on project "${project.name}" as ${agentRole}.
 ${project.description ? `Project description: ${project.description}` : ''}
 ${options.branchName ? `Your current branch: ${options.branchName}` : ''}
 Working directory: ${agentDir}
@@ -721,38 +837,42 @@ curl -s -X POST ${API_BASE}/api/projects/${project.id}/messages \\
 curl -s ${API_BASE}/api/projects/${project.id}/vault -H "Authorization: Bearer ${apiToken}"
 # Read a vault file
 curl -s ${API_BASE}/api/projects/${project.id}/vault/{filename} -H "Authorization: Bearer ${apiToken}"`);
+  }
 
-        // --- Coordinator skill (only for coordinators — manages project structure) ---
-        if (agentRole === 'coordinator') {
-          // Inject readiness state so coordinator knows project status
-          const readiness = evaluateReadiness(options.projectId);
-          let readinessBlock = '';
-          if (!readiness.ready) {
-            const failing = [
-              ...readiness.systemChecks.filter(c => !c.met).map(c => `  - [MISSING] ${c.label}`),
-              ...readiness.agentChecks.filter(c => !c.met).map(c => `  - [MISSING] ${c.label} (custom)`),
-            ].join('\n');
-            readinessBlock = `\n\n## PROJECT NOT READY
+  /**
+   * Write nebula-project-coordinator — coordinator-only dispatch/review/merge
+   * playbook. Includes a live readiness block (so the coordinator sees what's
+   * blocking launch at every execution) and the current team roster.
+   */
+  _buildProjectCoordinatorSkill(skillCtx, project) {
+    const { apiToken, options } = skillCtx;
+    const readiness = evaluateReadiness(options.projectId);
+    let readinessBlock;
+    if (!readiness.ready) {
+      const failing = [
+        ...readiness.systemChecks.filter(c => !c.met).map(c => `  - [MISSING] ${c.label}`),
+        ...readiness.agentChecks.filter(c => !c.met).map(c => `  - [MISSING] ${c.label} (custom)`),
+      ].join('\n');
+      readinessBlock = `\n\n## PROJECT NOT READY
 The project is in a not-ready state. The following prerequisites are not met:
 ${failing}
 
 You MUST guide the user to resolve these before creating milestones or dispatching work. You can still discuss design, write spec files, and help the user set up the project. Focus on getting the project to a ready state.
 For spec files: use the vault write API (see "Vault" section below) to create design-spec.md and tech-spec.md.`;
-          } else {
-            readinessBlock = '\n\n## Project Status: READY\nAll prerequisites are met. You may create milestones and dispatch work.';
-          }
-          // Load all project agents for context
-          const projectAgents = getAll(
-            `SELECT pa.*, a.name as agent_name, a.emoji as agent_emoji
-             FROM project_agents pa JOIN agents a ON pa.agent_id = a.id
-             WHERE pa.project_id = ?`,
-            [options.projectId]
-          );
-          const agentList = projectAgents.map(a => `  - ${a.agent_emoji} ${a.agent_name} (${a.role}, id: ${a.agent_id})`).join('\n');
+    } else {
+      readinessBlock = '\n\n## Project Status: READY\nAll prerequisites are met. You may create milestones and dispatch work.';
+    }
+    const projectAgents = getAll(
+      `SELECT pa.*, a.name as agent_name, a.emoji as agent_emoji
+       FROM project_agents pa JOIN agents a ON pa.agent_id = a.id
+       WHERE pa.project_id = ?`,
+      [options.projectId]
+    );
+    const agentList = projectAgents.map(a => `  - ${a.agent_emoji} ${a.agent_name} (${a.role}, id: ${a.agent_id})`).join('\n');
 
-          writeSkill('nebula-project-coordinator',
-            'Use when organizing the project — creating milestones/deliverables, assigning work to agents, reviewing PRs, merging, and monitoring progress.',
-            `You are the coordinator of project "${project.name}".
+    this._writeSkill(skillCtx, 'nebula-project-coordinator',
+      'Use when organizing the project — creating milestones/deliverables, assigning work to agents, reviewing PRs, merging, and monitoring progress.',
+      `You are the coordinator of project "${project.name}".
 ${project.description ? `Project description: ${project.description}` : ''}
 Your working directory is a checkout of the project repository — you can browse and read all source code directly.
 You must ONLY work within this project. Do not access other repositories or projects.${readinessBlock}
@@ -850,12 +970,18 @@ Cron: "0 14 * * *" — prompt: "Check for open PRs waiting >24h. Post reminder @
 
 ### Weekly Milestone Report (Friday 5pm)
 Cron: "0 17 * * 5" — prompt: "Generate milestone progress report with completion %, open PRs, risks. Post to project conversation."`);
-        }
+  }
 
-        // Git LFS skill — common for all project agents
-        writeSkill('nebula-git-lfs',
-          'Manage Git LFS for large files. Use when tracking, untracking, or checking status of large files.',
-          `Manage Git Large File Storage in your worktree. Use the Bash tool.
+  /**
+   * Project-shared infrastructure skills: git-lfs (always, for large-file
+   * handling inside the worktree) and any integration skills generated from
+   * project_links (YouTrack, Confluence, Notion, CI webhooks).
+   */
+  _buildProjectInfraSkills(skillCtx) {
+    const { agentOrgId, options } = skillCtx;
+    this._writeSkill(skillCtx, 'nebula-git-lfs',
+      'Manage Git LFS for large files. Use when tracking, untracking, or checking status of large files.',
+      `Manage Git Large File Storage in your worktree. Use the Bash tool.
 
 ## Track large files by pattern
 git lfs track "*.psd"
@@ -875,47 +1001,52 @@ git commit -m "Track large files with LFS"
 
 Note: After adding a track pattern, you must commit the updated .gitattributes before LFS will manage those files.`);
 
-        // Integration skills (issue tracker, KB, CI) — only if linked
-        const projectLinks = getAll('SELECT * FROM project_links WHERE project_id = ?', [options.projectId]);
-        if (projectLinks.length > 0) {
-          const integrationSkills = generateIntegrationSkills(projectLinks, (link) => {
-            // Resolve token from link config or org settings
-            const config = typeof link.config === 'string' ? JSON.parse(link.config) : link.config;
-            return config.token || getOrgSetting(agentOrgId, `${link.provider}_api_token`);
-          });
-          for (const skill of integrationSkills) {
-            writeSkill(skill.name, skill.description, skill.content);
-          }
-        }
+    const projectLinks = getAll('SELECT * FROM project_links WHERE project_id = ?', [options.projectId]);
+    if (projectLinks.length > 0) {
+      const integrationSkills = generateIntegrationSkills(projectLinks, (link) => {
+        const config = typeof link.config === 'string' ? JSON.parse(link.config) : link.config;
+        return config.token || getOrgSetting(agentOrgId, `${link.provider}_api_token`);
+      });
+      for (const skill of integrationSkills) {
+        this._writeSkill(skillCtx, skill.name, skill.description, skill.content);
       }
     }
+  }
 
-    // NAS access + symlink setup
+  /**
+   * Set up NAS-path symlinks in the agent's workdir and emit the nebula-nas
+   * skill describing what's mounted and the safety rules. No-op when the
+   * agent has no NAS paths configured.
+   */
+  _buildNasSkill(skillCtx) {
+    const { agent, agentDir } = skillCtx;
     let nasPaths = [];
     try { nasPaths = JSON.parse(agent.nas_paths || '[]'); } catch {}
-    if (nasPaths.length > 0) {
-      const nasLinksDir = path.join(agentDir, 'nas');
-      fs.mkdirSync(nasLinksDir, { recursive: true });
-      const accessiblePaths = [];
-      for (const nasPath of nasPaths) {
-        const containerPath = nasPath.startsWith('/') ? '/nas' + nasPath : nasPath;
-        if (fs.existsSync(containerPath)) {
-          const linkName = path.basename(nasPath);
-          const linkPath = path.join(nasLinksDir, linkName);
-          try { fs.unlinkSync(linkPath); } catch {}
-          try {
-            fs.symlinkSync(containerPath, linkPath);
-            accessiblePaths.push(`  - ${linkPath} -> ${nasPath}`);
-          } catch (e) {
-            accessiblePaths.push(`  - ${nasPath} (link failed: ${e.message})`);
-          }
-        } else {
-          accessiblePaths.push(`  - ${nasPath} (not mounted)`);
+    if (nasPaths.length === 0) return;
+
+    const nasLinksDir = path.join(agentDir, 'nas');
+    fs.mkdirSync(nasLinksDir, { recursive: true });
+    const accessiblePaths = [];
+    for (const nasPath of nasPaths) {
+      // In Docker, host NAS paths are mounted under /nas/...; outside Docker we use the path as-is.
+      const containerPath = nasPath.startsWith('/') ? '/nas' + nasPath : nasPath;
+      if (fs.existsSync(containerPath)) {
+        const linkName = path.basename(nasPath);
+        const linkPath = path.join(nasLinksDir, linkName);
+        try { fs.unlinkSync(linkPath); } catch {}
+        try {
+          fs.symlinkSync(containerPath, linkPath);
+          accessiblePaths.push(`  - ${linkPath} -> ${nasPath}`);
+        } catch (e) {
+          accessiblePaths.push(`  - ${nasPath} (link failed: ${e.message})`);
         }
+      } else {
+        accessiblePaths.push(`  - ${nasPath} (not mounted)`);
       }
-      writeSkill('nebula-nas',
-        'Access NAS filesystem paths. Use when the user asks to read, write, or manage files on the NAS.',
-        `NAS paths are symlinked in ${nasLinksDir}:
+    }
+    this._writeSkill(skillCtx, 'nebula-nas',
+      'Access NAS filesystem paths. Use when the user asks to read, write, or manage files on the NAS.',
+      `NAS paths are symlinked in ${nasLinksDir}:
 ${accessiblePaths.join('\n')}
 
 These are live mounts to shared network storage. All changes are immediate and affect the actual NAS — there is no undo.
@@ -925,81 +1056,15 @@ These are live mounts to shared network storage. All changes are immediate and a
 - **List before bulk operations** — always \`ls\` a directory before moving, copying, or modifying its contents
 - **Do not overwrite** existing files without asking — prefer writing to new paths
 - Treat these paths as shared storage that other users and systems may access concurrently`);
-    }
+  }
 
-    // Load secrets — scope-specific secrets override org secrets of the same key.
-    // Project context: org + project secrets (agent secrets excluded for isolation).
-    // Agent context: org + agent secrets (project secrets excluded).
-    const orgSecrets = getAll(
-      'SELECT key, value FROM org_secrets WHERE org_id = ?',
-      [agentOrgId]
-    );
-    const secretMap = new Map(orgSecrets.map(s => [s.key, decrypt(s.value)]));
-
-    if (options.projectId) {
-      // Project context — use project secrets, NOT agent secrets
-      const projectSecrets = getAll(
-        'SELECT key, value FROM project_secrets WHERE project_id = ?',
-        [options.projectId]
-      );
-      for (const s of projectSecrets) {
-        secretMap.set(s.key, decrypt(s.value));
-      }
-    } else {
-      // Agent context — use agent secrets
-      const agentSecrets = getAll(
-        'SELECT key, value FROM agent_secrets WHERE agent_id = ?',
-        [agentId]
-      );
-      for (const s of agentSecrets) {
-        secretMap.set(s.key, decrypt(s.value));
-      }
-    }
-
-    // Build env vars for the CLI process
-    const secretEnvVars = {};
-    for (const [key, value] of secretMap) {
-      secretEnvVars[key] = value;
-    }
-
-    // Resolve {{KEY}} to ${KEY} (env var reference) for skills — agent never sees the actual value
-    function resolveSecretsForSkills(text) {
-      return text.replace(/\{\{([A-Z0-9_]+)\}\}/g, (match, key) => {
-        return secretMap.has(key) ? `\${${key}}` : match;
-      });
-    }
-
-    // Resolve {{KEY}} to actual values for MCP configs (not agent-visible, passed to MCP process)
-    function resolveSecretsForConfig(text) {
-      return text.replace(/\{\{([A-Z0-9_]+)\}\}/g, (match, key) => {
-        return secretMap.has(key) ? secretMap.get(key) : match;
-      });
-    }
-
-    // MCP servers (org-wide + agent-specific) — filter out structurally invalid configs
-    const mcpServers = getAll(
-      `SELECT * FROM mcp_servers
-       WHERE enabled = 1 AND ((org_id = ? AND agent_id IS NULL) OR agent_id = ?)`,
-      [agentOrgId, agentId]
-    ).map(s => {
-      const config = JSON.parse(resolveSecretsForConfig(s.config));
-      return { name: s.name, transport: s.transport, config };
-    }).filter(s => {
-      if (s.transport === 'stdio') {
-        if (!s.config.command || typeof s.config.command !== 'string') {
-          console.warn(`[executor] Skipping MCP server "${s.name}": stdio transport missing "command"`);
-          return false;
-        }
-      } else {
-        if (!s.config.url || typeof s.config.url !== 'string') {
-          console.warn(`[executor] Skipping MCP server "${s.name}": ${s.transport} transport missing "url"`);
-          return false;
-        }
-      }
-      return true;
-    });
-
-    // Custom skills (org-wide + agent-specific)
+  /**
+   * Materialize user-defined custom skills (org-wide + agent-specific).
+   * `{{SECRET}}` refs in skill content are rewritten to `${SECRET}` env
+   * references so the agent sees variable names, never literal values.
+   */
+  _buildCustomSkills(skillCtx, secretMap) {
+    const { agentOrgId, agentId } = skillCtx;
     const customSkills = getAll(
       `SELECT * FROM custom_skills
        WHERE enabled = 1 AND ((org_id = ? AND agent_id IS NULL) OR agent_id = ?)`,
@@ -1007,30 +1072,44 @@ These are live mounts to shared network storage. All changes are immediate and a
     );
     for (const skill of customSkills) {
       const skillName = skill.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      writeSkill(`custom-${skillName}`, skill.description, resolveSecretsForSkills(skill.content));
+      this._writeSkill(skillCtx, `custom-${skillName}`, skill.description,
+        resolveSecretsAsEnvRefs(skill.content, secretMap));
     }
+  }
 
-    // Coding conventions (built-in)
-    writeSkill('nebula-coding-conventions',
+  /**
+   * Built-in org-agnostic skills: coding conventions (static) and the
+   * intelligence-scan SOP (parameterized by org name + notify email).
+   */
+  _buildBuiltinSkills(skillCtx) {
+    const { agentOrgId } = skillCtx;
+    this._writeSkill(skillCtx, 'nebula-coding-conventions',
       'Coding conventions and architectural rules. Reference when writing new code, reviewing changes, or refactoring. Covers hierarchy design, API ownership, lifecycle contracts, data modeling, and test quality.',
       CODING_CONVENTIONS_SKILL);
 
-    // Intelligence scan SOP (built-in)
-    {
-      const org = getOne('SELECT name FROM organizations WHERE id = ?', [agentOrgId]);
-      writeSkill('nebula-intelligence-scan',
-        'Standard operating procedure for intelligence scans and research reports. Use when running morning/evening scans, market research, competitive analysis, or any structured research task.',
-        intelligenceScanSkill({
-          notifyEmail: getOrgSetting(agentOrgId, 'notify_email_to') || '',
-          orgName: org?.name || 'the organization',
-        }));
-    }
+    const org = getOne('SELECT name FROM organizations WHERE id = ?', [agentOrgId]);
+    this._writeSkill(skillCtx, 'nebula-intelligence-scan',
+      'Standard operating procedure for intelligence scans and research reports. Use when running morning/evening scans, market research, competitive analysis, or any structured research task.',
+      intelligenceScanSkill({
+        notifyEmail: getOrgSetting(agentOrgId, 'notify_email_to') || '',
+        orgName: org?.name || 'the organization',
+      }));
+  }
 
-    // --- Memory system ---
+  /**
+   * Memory metadata + memory-management skill. Emits:
+   *   - a system-prompt section listing memory titles + descriptions for
+   *     progressive disclosure (search first, load on demand);
+   *   - the nebula-memory skill in one of three variants keyed by context:
+   *       task context  → read-only (no writes from inside a deliverable task)
+   *       project context → R/W on project, RO on personal
+   *       main context  → full R/W on personal memory
+   */
+  _buildMemorySkill(skillCtx) {
+    const { agentId, apiToken, options, systemParts } = skillCtx;
     const isTaskContext = !!(options.projectId && options.branchName);
     const isProjectContext = !!(options.projectId && !options.branchName);
 
-    // Fetch memory metadata for system prompt injection
     const agentMemories = getAll(
       'SELECT id, title, description FROM memories WHERE owner_type = ? AND owner_id = ? ORDER BY updated_at DESC',
       ['agent', agentId]
@@ -1046,7 +1125,6 @@ These are live mounts to shared network storage. All changes are immediate and a
       projectName = proj?.name || 'Unknown';
     }
 
-    // Inject memory metadata into system prompt
     if (agentMemories.length > 0 || projectMemories.length > 0) {
       const memParts = ['## Your Memories', 'Use search_memory(query) to find relevant knowledge.\nUse read_memory(id) to load full content.'];
       if (!isTaskContext) {
@@ -1055,22 +1133,17 @@ These are live mounts to shared network storage. All changes are immediate and a
       memParts.push('');
       if (agentMemories.length > 0) {
         memParts.push(`Personal (${agentMemories.length} concepts):`);
-        for (const m of agentMemories) {
-          memParts.push(`- ${m.title}: ${m.description}`);
-        }
+        for (const m of agentMemories) memParts.push(`- ${m.title}: ${m.description}`);
       }
       if (projectMemories.length > 0) {
         memParts.push(`\nProject "${projectName}" (${projectMemories.length} concepts):`);
-        for (const m of projectMemories) {
-          memParts.push(`- ${m.title}: ${m.description}`);
-        }
+        for (const m of projectMemories) memParts.push(`- ${m.title}: ${m.description}`);
       }
       systemParts.push(memParts.join('\n'));
     }
 
-    // Memory management skill (context-dependent)
     if (isTaskContext) {
-      writeSkill('nebula-memory',
+      this._writeSkill(skillCtx, 'nebula-memory',
         'Search and read memories for reference during task execution. Read-only — include learnings in your work summary.',
         `# Memory Reference
 
@@ -1091,7 +1164,7 @@ curl -s ${API_BASE}/api/agents/${agentId}/memory/{memory_id} \\
 
 You cannot modify memories during task execution. Include any learnings in your work summary when the task completes.`);
     } else if (isProjectContext) {
-      writeSkill('nebula-memory',
+      this._writeSkill(skillCtx, 'nebula-memory',
         'Manage project memories and search across personal + project knowledge. Personal memories are read-only in project context.',
         `# Memory Management
 
@@ -1133,8 +1206,7 @@ curl -s -X DELETE ${API_BASE}/api/projects/${options.projectId}/memory/{memory_i
 
 Note: You cannot modify personal memory from project context. If you discover something broadly useful, note it in your work summary for your main identity to review.`);
     } else {
-      // Main context — full R/W on personal memory
-      writeSkill('nebula-memory',
+      this._writeSkill(skillCtx, 'nebula-memory',
         'Manage your persistent memory — store knowledge, search past learnings, and maintain context across sessions.',
         `# Memory Management
 
@@ -1185,8 +1257,16 @@ curl -s ${API_BASE}/api/agents/${agentId}/memory -H "Authorization: Bearer ${api
 - Update existing memories rather than creating near-duplicates
 - SECURITY: Never store secrets, tokens, or passwords in memory content`);
     }
+  }
 
-    // Agent identity in system prompt
+  /**
+   * Push the agent identity + collaboration + isolation/security block into
+   * systemParts. Includes a live listing of files in vault/ so the agent
+   * knows what the user has uploaded without an extra Read tool call.
+   */
+  _buildIdentitySection(skillCtx, peerAgents) {
+    const { agent, agentOrgId, agentDir, options, systemParts } = skillCtx;
+
     const vaultDir = path.join(agentDir, 'vault');
     let vaultListing = '';
     if (fs.existsSync(vaultDir)) {
@@ -1204,6 +1284,8 @@ curl -s ${API_BASE}/api/agents/${agentId}/memory -H "Authorization: Bearer ${api
     const orgName = org?.name || 'Unknown';
     const peerCount = peerAgents.length;
 
+    // Project conversations scope all mentions back to the coordinator, so the
+    // @notify fire-and-forget hint is suppressed in that context.
     const collaborateHint = peerAgents.length > 0
       ? (options.projectId
         ? `\nCollaborate with peers using @TheirName to pull them into the conversation. Available: ${peerAgents.map(a => a.name).join(', ')}.`
@@ -1218,58 +1300,199 @@ IMPORTANT: Stay within your working directory. Do NOT read, write, list, or acce
 Update your CLAUDE.md to persist notes across sessions.
 SECURITY: Never write secrets, tokens, passwords, or API keys as plaintext into any file (CLAUDE.md, vault/, or conversation responses) or memory content. Secrets are available as environment variables (e.g. $GITEA_TOKEN) — reference them by variable name only. If you need to note that a secret exists, write the key name (e.g. "uses GITEA_TOKEN"), never the value.
 Messages prefixed with [Inter-agent message from ...] are from peer agents, not from a human user. Respond professionally and directly to the request — no social pleasantries, no asking the user to relay thanks. Focus on executing the task.${vaultListing}`);
+  }
 
-    // Agent readiness check — if not initialized, inject setup directive
-    if (!agent.initialized && !options.projectId) {
-      const hasCLAUDEmd = fs.existsSync(path.join(agentDir, 'CLAUDE.md'));
-      const hasOrgProfile = getOne(
-        "SELECT id FROM memories WHERE owner_type = 'agent' AND owner_id = ? AND title = 'Organization Profile' COLLATE NOCASE",
-        [agentId]
-      );
-      // Backward compat: also check file-based org profile (pre-migration agents)
-      const hasOrgProfileFile = fs.existsSync(path.join(agentDir, 'memory', 'org-profile.md'));
-      const hasRole = !!agent.role;
-      const missing = [];
-      if (!hasRole) missing.push('Role not set (user should configure in agent settings)');
-      if (!hasCLAUDEmd) missing.push('Agent guidelines file (CLAUDE.md) not created yet');
-      if (!hasOrgProfile && !hasOrgProfileFile) missing.push('Organization profile memory not created yet — use update_memory to create a memory titled "Organization Profile" with your understanding of the org, peer agents, resources, and priorities');
+  /**
+   * First-run readiness gate: if the agent is not yet `initialized` and we're
+   * not in a project context, check for the three signals we consider "setup
+   * complete" (role set, CLAUDE.md present, Organization Profile memory).
+   * Missing → push a setup directive into the system prompt. All present →
+   * flip initialized = 1 so the directive doesn't reappear.
+   */
+  _checkAgentReadiness(skillCtx) {
+    const { agent, agentId, agentDir, options, systemParts } = skillCtx;
+    if (agent.initialized || options.projectId) return;
 
-      if (missing.length > 0) {
-        systemParts.push(`## AGENT SETUP NEEDED
+    const hasCLAUDEmd = fs.existsSync(path.join(agentDir, 'CLAUDE.md'));
+    const hasOrgProfile = getOne(
+      "SELECT id FROM memories WHERE owner_type = 'agent' AND owner_id = ? AND title = 'Organization Profile' COLLATE NOCASE",
+      [agentId]
+    );
+    // Backward compat: also accept file-based org profile (pre-migration agents).
+    const hasOrgProfileFile = fs.existsSync(path.join(agentDir, 'memory', 'org-profile.md'));
+    const hasRole = !!agent.role;
+    const missing = [];
+    if (!hasRole) missing.push('Role not set (user should configure in agent settings)');
+    if (!hasCLAUDEmd) missing.push('Agent guidelines file (CLAUDE.md) not created yet');
+    if (!hasOrgProfile && !hasOrgProfileFile) missing.push('Organization profile memory not created yet — use update_memory to create a memory titled "Organization Profile" with your understanding of the org, peer agents, resources, and priorities');
+
+    if (missing.length > 0) {
+      systemParts.push(`## AGENT SETUP NEEDED
 This agent is not fully initialized. Missing:
 ${missing.map(m => `- ${m}`).join('\n')}
 
 Help the user complete the setup. Ask about your role if not set. Once you have enough context from the user, create your CLAUDE.md (working guidelines, role, conventions) and use the memory system to store your organization profile. You can still help the user with tasks, but prioritize completing your setup when there's a natural opportunity.`);
+    } else {
+      run('UPDATE agents SET initialized = 1 WHERE id = ?', [agentId]);
+    }
+  }
+
+  /**
+   * For runtimes that can't read .claude/skills/ off disk (OpenCode et al),
+   * concatenate every emitted skill into a `## Skills` block appended to the
+   * system prompt. No-op for disk-injection runtimes — they already have the
+   * files laid out from _writeSkill.
+   */
+  _inlineSkillsForSystemPrompt(skillCtx) {
+    const { backend, skillDefinitions, systemParts } = skillCtx;
+    if (backend.skillInjection !== 'systemprompt') return;
+    if (skillDefinitions.length === 0) return;
+    const skillsBlock = skillDefinitions.map(s => s.content).join('\n\n---\n\n');
+    systemParts.push(`## Skills\n\n${skillsBlock}`);
+  }
+
+  /**
+   * Emit a skill (name, description, content) for the current execution:
+   *  - always appended to `skillCtx.skillDefinitions` so it can be forwarded
+   *    to remote agents and inlined into the system prompt for
+   *    `skillInjection === 'systemprompt'` runtimes;
+   *  - additionally materialized at `.claude/skills/<name>/SKILL.md` when the
+   *    runtime reads skills from disk.
+   *
+   * The skillCtx object is built once at the top of _execute and threaded
+   * through the per-skill-group helpers so each helper doesn't need to know
+   * about skillDefinitions, ccSkillsDir, or the backend's injection mode.
+   */
+  _writeSkill(skillCtx, name, description, content) {
+    const skillContent = `---\nname: ${name}\ndescription: ${description}\n---\n\n${content}`;
+    skillCtx.skillDefinitions.push({ name, content: skillContent });
+    if (skillCtx.backend.skillInjection === 'disk') {
+      const dir = path.join(skillCtx.ccSkillsDir, name);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), skillContent);
+    }
+  }
+
+  /**
+   * Load enabled MCP servers for this agent (org-wide + agent-specific),
+   * resolve `{{SECRET}}` refs in their config to literal values, and drop
+   * entries that are structurally invalid for their transport.
+   */
+  _loadMcpServers(agentOrgId, agentId, secretMap) {
+    return getAll(
+      `SELECT * FROM mcp_servers
+       WHERE enabled = 1 AND ((org_id = ? AND agent_id IS NULL) OR agent_id = ?)`,
+      [agentOrgId, agentId]
+    ).map(s => {
+      const config = JSON.parse(resolveSecretsAsValues(s.config, secretMap));
+      return { name: s.name, transport: s.transport, config };
+    }).filter(s => {
+      if (s.transport === 'stdio') {
+        if (!s.config.command || typeof s.config.command !== 'string') {
+          console.warn(`[executor] Skipping MCP server "${s.name}": stdio transport missing "command"`);
+          return false;
+        }
       } else {
-        // All present — mark as initialized
-        run('UPDATE agents SET initialized = 1 WHERE id = ?', [agentId]);
+        if (!s.config.url || typeof s.config.url !== 'string') {
+          console.warn(`[executor] Skipping MCP server "${s.name}": ${s.transport} transport missing "url"`);
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+
+  async _execute({ agentId, prompt, options }) {
+    const agent = getOne('SELECT * FROM agents WHERE id = ?', [agentId]);
+    if (!agent) throw new Error(`Agent ${agentId} not found`);
+    if (!agent.enabled) throw new Error(`Agent ${agentId} is disabled`);
+
+    const agentOrgId = agent.org_id;
+    const contextKey = this._contextKey(agentId, options.projectId, options.branchName);
+
+    // Resolve runtime via registry — handles agent override, org default, model compat fallback
+    const backend = registry.resolveForAgent(agent, agentOrgId);
+    const runtime = backend.cliId;
+
+    let conversation = this._resolveConversation(agent, agentId, options);
+    const agentDir = this._resolveAgentDir(agentId, agentOrgId, options);
+
+    // Session resets for branch change or runtime change — CLI runtimes tie
+    // sessions to CWD and to the runtime's own session ID format.
+    const resolvedBranch = options.branchName || null;
+    const resetResult = this._detectSessionResets(conversation, runtime, resolvedBranch);
+    conversation = resetResult.conversation;
+    const sessionWasReset = resetResult.sessionWasReset;
+
+    // --- Assemble system prompt and skills (Nebula concerns) ---
+    // skillCtx carries the state the per-skill-group helpers need to share:
+    // skillDefinitions (accumulated for remote transfer + systemprompt inlining),
+    // systemParts (accumulated into the final system prompt), the CLAUDE.md skills
+    // directory, and the backend to dispatch skill injection mode.
+    const systemParts = [];
+    const skillDefinitions = [];
+    const apiToken = getOrgSetting(agentOrgId, 'internal_api_token');
+    const ccSkillsDir = path.join(agentDir, '.claude', 'skills');
+    const skillCtx = {
+      agent, agentId, agentOrgId, agentDir, options, backend, apiToken,
+      ccSkillsDir, skillDefinitions, systemParts,
+    };
+
+    // Clean Nebula-managed skills from previous executions (context may change between runs)
+    // Only removes nebula-* and custom-* prefixed skills — leaves user-created skills untouched
+    if (fs.existsSync(ccSkillsDir)) {
+      for (const entry of fs.readdirSync(ccSkillsDir)) {
+        if (entry.startsWith('nebula-') || entry.startsWith('custom-')) {
+          try { fs.rmSync(path.join(ccSkillsDir, entry), { recursive: true }); } catch {}
+        }
+      }
+    }
+    // Global knowledge (org-scoped)
+    const globalPath = orgPath(agentOrgId, 'global', 'CLAUDE.md');
+    if (fs.existsSync(globalPath)) {
+      const globalKnowledge = fs.readFileSync(globalPath, 'utf-8').trim();
+      if (globalKnowledge) systemParts.push(globalKnowledge);
+    }
+
+    // Project knowledge (from worktree — branch-specific version)
+    if (options.projectId && options.branchName) {
+      const projectClaudeMd = path.join(agentDir, 'CLAUDE.md');
+      if (fs.existsSync(projectClaudeMd)) {
+        const projectKnowledge = fs.readFileSync(projectClaudeMd, 'utf-8').trim();
+        if (projectKnowledge) systemParts.push(projectKnowledge);
       }
     }
 
-    // CLIs with systemprompt skill injection need skills inlined into the system prompt
-    if (backend.skillInjection === 'systemprompt' && skillDefinitions.length > 0) {
-      const skillsBlock = skillDefinitions.map(s => s.content).join('\n\n---\n\n');
-      systemParts.push(`## Skills\n\n${skillsBlock}`);
-    }
+    // --- Built-in Skills ---
+    this._buildTasksSkill(skillCtx);
+    this._buildWorkspaceSkill(skillCtx);
+    this._buildSkillMgmtSkill(skillCtx);
+
+    this._buildMailSkills(skillCtx);
+
+    // Load peer agents once — used by both the agents skill and the system-prompt block below.
+    const peerAgents = this._loadPeerAgents(agentOrgId, agentId);
+    this._buildAgentsSkill(skillCtx, peerAgents);
+    this._buildProjectsSkill(skillCtx);
+
+    this._buildProjectContextSkills(skillCtx);
+    this._buildNasSkill(skillCtx);
+
+    // Secrets + downstream config: skills see `${KEY}` env refs via _buildCustomSkills;
+    // MCP configs receive literal values via _loadMcpServers (agent never sees them).
+    const { secretMap, secretEnvVars } = this._resolveSecrets(agentOrgId, agentId, options);
+    const mcpServers = this._loadMcpServers(agentOrgId, agentId, secretMap);
+
+    this._buildCustomSkills(skillCtx, secretMap);
+    this._buildBuiltinSkills(skillCtx);
+    this._buildMemorySkill(skillCtx);
+
+    this._buildIdentitySection(skillCtx, peerAgents);
+    this._checkAgentReadiness(skillCtx);
+    this._inlineSkillsForSystemPrompt(skillCtx);
 
     const systemPrompt = systemParts.join('\n\n');
-    const orgDefaultTimeout = parseInt(getOrgSetting(agentOrgId, 'default_timeout_ms')) || 600000;
-    // Timeout resolution depends on context:
-    // - Project context: explicit override > project timeout > org default
-    // - Agent context: explicit override > agent timeout > org default
-    let timeoutMs;
-    if (options.timeoutMs) {
-      timeoutMs = options.timeoutMs;
-    } else if (options.projectId) {
-      const proj = getOne('SELECT timeout_ms FROM projects WHERE id = ?', [options.projectId]);
-      timeoutMs = proj?.timeout_ms || orgDefaultTimeout;
-    } else {
-      timeoutMs = agent.timeout_ms || orgDefaultTimeout;
-    }
-
-    // Recovery token budget: agent override > org setting > default (25000)
-    const recoveryTokenBudget = agent.recovery_token_budget
-      || parseInt(getOrgSetting(agentOrgId, 'recovery_token_budget')) || 25000;
+    const { timeoutMs, recoveryTokenBudget } = this._resolveExecutionParams(agent, agentOrgId, options);
 
     // --- Execute via backend ---
 
@@ -1366,31 +1589,17 @@ Help the user complete the setup. Ask about your role if not set. Once you have 
         }
       }
 
-      // Log usage event
-      try {
-        run(
-          `INSERT INTO usage_events (id, org_id, agent_id, conversation_id, backend, model, tokens_in, tokens_out, total_cost, duration_ms, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'success')`,
-          [generateId(), agentOrgId, agentId, conversation.id, runtime, agent.model,
-           result.usage?.input_tokens || 0, result.usage?.output_tokens || 0,
-           result.total_cost_usd || 0, result.duration_ms || 0]
-        );
-      } catch (e) {
-        console.error('[executor] Failed to log usage event:', e.message);
-      }
+      this._logUsageEvent('success', {
+        agentOrgId, agentId, conversationId: conversation.id,
+        runtime, model: agent.model, result,
+      });
 
       return result;
     } catch (err) {
-      // Log failed usage event
-      try {
-        run(
-          `INSERT INTO usage_events (id, org_id, agent_id, conversation_id, backend, model, duration_ms, status, error_message)
-           VALUES (?, ?, ?, ?, ?, ?, 0, 'error', ?)`,
-          [generateId(), agentOrgId, agentId, conversation.id, runtime, agent.model, String(err.message || err).slice(0, 1000)]
-        );
-      } catch (e) {
-        console.error('[executor] Failed to log usage event:', e.message);
-      }
+      this._logUsageEvent('error', {
+        agentOrgId, agentId, conversationId: conversation.id,
+        runtime, model: agent.model, error: err,
+      });
       throw err;
     } finally {
       this.abortControllers.delete(contextKey);
