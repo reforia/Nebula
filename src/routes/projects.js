@@ -7,9 +7,8 @@ import { generateId } from '../utils/uuid.js';
 import executor from '../services/executor.js';
 import { broadcastToOrg, broadcastUnreadCounts } from '../services/websocket.js';
 import * as git from '../services/git.js';
-import { getGitProvider } from '../services/git-providers.js';
 import { redactSecrets } from '../utils/redact.js';
-import { encrypt, decrypt } from '../utils/crypto.js';
+import { encrypt } from '../utils/crypto.js';
 import { upsertSecret } from '../utils/secret-upsert.js';
 import { enrichReplyTo } from '../services/message-service.js';
 import { registerCron, unregisterCron, fireTask, validateCron } from '../services/scheduler.js';
@@ -17,13 +16,15 @@ import { buildUpdate } from '../utils/update-builder.js';
 import { evaluateReadiness, updateProjectReadiness } from '../services/readiness.js';
 import { getGitProviderAccount } from '../services/git-providers.js';
 import { catchError, sendError } from '../utils/response.js';
+import { logAsync } from '../utils/async.js';
+import {
+  getProject,
+  repoPath,
+  getProviderForProject,
+  processProjectMentions,
+} from '../services/projects.js';
 
 const router = Router();
-
-// --- Helper: verify project belongs to org ---
-function getProject(projectId, orgId) {
-  return getOne('SELECT * FROM projects WHERE id = ? AND org_id = ?', [projectId, orgId]);
-}
 
 // ==================== Wizard Endpoints (before /:id routes to avoid param capture) ====================
 
@@ -857,113 +858,6 @@ router.post('/:id/messages/read', (req, res) => {
   res.json({ ok: true });
 });
 
-// Cap recursive mention chains so a loop like `@Alice` → response contains `@Bob`
-// → response contains `@Alice` → ... cannot run forever. Three hops matches the
-// coordinator-dispatch-follow-up depth we actually design for.
-const MAX_PROJECT_MENTION_DEPTH = 3;
-
-/**
- * Process @mentions in project conversation text.
- * @notify is intentionally NOT supported in projects — all mentions route responses
- * back to the project conversation so the coordinator can synthesize results.
- * Returns a promise that resolves with an array of { agentName, agentEmoji, text } for each
- * dispatched agent, allowing the caller to trigger coordinator follow-up.
- * @param {string} text - message text to scan
- * @param {string} excludeAgentId - agent to exclude (the author)
- * @param {Object} project - project DB row
- * @param {Object} conversation - conversation DB row
- * @param {string} orgId - org ID
- * @param {number} [depth=0] - recursion depth; capped at MAX_PROJECT_MENTION_DEPTH
- * @returns {Promise<Array<{ agentName: string, agentEmoji: string, text: string }>>}
- */
-function processProjectMentions(text, excludeAgentId, project, conversation, orgId, depth = 0) {
-  if (!text) return Promise.resolve([]);
-  if (depth >= MAX_PROJECT_MENTION_DEPTH) {
-    console.warn(`[project ${project.id}] mention recursion capped at depth ${depth}`);
-    return Promise.resolve([]);
-  }
-
-  const mentionRe = /@(\S+)/g;
-  const mentions = [...text.matchAll(mentionRe)]
-    .map(m => m[1])
-    .filter(name => name.toLowerCase() !== 'notify'); // skip @notify keyword
-
-  const uniqueMentions = [...new Set(mentions)].slice(0, 3);
-  const promises = [];
-
-  for (const mentionedName of uniqueMentions) {
-    const mentioned = getOne(
-      'SELECT a.* FROM agents a JOIN project_agents pa ON a.id = pa.agent_id WHERE a.name = ? AND a.org_id = ? AND pa.project_id = ? AND a.enabled = 1',
-      [mentionedName, orgId, project.id]
-    );
-    if (!mentioned || mentioned.id === excludeAgentId) continue;
-
-    const mentionedDeliverable = getOne(
-      "SELECT branch_name FROM project_deliverables WHERE assigned_agent_id = ? AND branch_name IS NOT NULL AND status IN ('pending', 'in_progress') LIMIT 1",
-      [mentioned.id]
-    );
-
-    // Execute with a project-scoped session (executor finds/creates one per agent+project).
-    // Response is stored in the project conversation via the .then() callback below.
-    const promise = executor
-      .enqueue(mentioned.id, text, {
-        priority: true, maxTurns: 50,
-        displayConversationId: conversation.id,
-        projectId: project.id,
-        branchName: mentionedDeliverable?.branch_name || null,
-      })
-      .then((result) => {
-        const msgId = generateId();
-        let resultText = result.result || '';
-        if (!resultText.trim()) {
-          resultText = result.subtype === 'error_max_turns'
-            ? '*Agent reached the maximum number of turns without producing a final response.*'
-            : '*Agent completed execution but produced no text response.*';
-        }
-        const metadata = JSON.stringify({
-          duration_ms: result.duration_ms, total_cost_usd: result.total_cost_usd,
-          usage: result.usage, subtype: result.subtype,
-          ...(result.tool_history?.length > 0 && { tool_history: result.tool_history }),
-        });
-
-        const safeText = redactSecrets(resultText, orgId, mentioned.id);
-        run(
-          `INSERT INTO messages (id, agent_id, conversation_id, role, content, message_type, metadata, is_read, created_at)
-           VALUES (?, ?, ?, 'assistant', ?, 'chat', ?, 0, datetime('now'))`,
-          [msgId, mentioned.id, conversation.id, safeText, metadata]
-        );
-        run("UPDATE conversations SET updated_at = datetime('now') WHERE id = ?", [conversation.id]);
-
-        const msg = getOne('SELECT * FROM messages WHERE id = ?', [msgId]);
-        broadcastToOrg(orgId, { type: 'new_message', project_id: project.id, message: msg });
-        broadcastUnreadCounts(orgId);
-
-        // Recursively process mentions in the mentioned agent's response (fire-and-forget)
-        processProjectMentions(safeText, mentioned.id, project, conversation, orgId, depth + 1);
-
-        return { agentName: mentioned.name, agentEmoji: mentioned.emoji, text: safeText };
-      })
-      .catch((err) => {
-        const msgId = generateId();
-        console.error('[project] Agent mention execution failed:', err);
-        run(
-          `INSERT INTO messages (id, agent_id, conversation_id, role, content, message_type, is_read, created_at)
-           VALUES (?, ?, ?, 'assistant', ?, 'error', 0, datetime('now'))`,
-          [msgId, mentioned.id, conversation.id, 'Execution failed']
-        );
-        const msg = getOne('SELECT * FROM messages WHERE id = ?', [msgId]);
-        broadcastToOrg(orgId, { type: 'new_message', project_id: project.id, message: msg });
-        broadcastUnreadCounts(orgId);
-
-        return { agentName: mentioned.name, agentEmoji: mentioned.emoji, text: 'Execution failed', error: true };
-      });
-
-    promises.push(promise);
-  }
-
-  return Promise.all(promises);
-}
-
 // POST /api/projects/:id/messages — post to project conversation, trigger agent execution
 router.post('/:id/messages', async (req, res) => {
   const project = getProject(req.params.id, req.orgId);
@@ -1019,7 +913,7 @@ router.post('/:id/messages', async (req, res) => {
   );
 
   // Execute in project context
-  executor
+  logAsync(executor
     .enqueue(targetAgentId, content.trim(), {
       priority: true, maxTurns: 50,
       conversationId: conversation.id,
@@ -1107,11 +1001,15 @@ router.post('/:id/messages', async (req, res) => {
               // depth=0 is safe because the outer .then(responses => ...) only fires follow-up
               // once (line ~1013 guard), so this can't compound across repeated follow-ups.
               // If that guard ever changes, pass through a budget here.
-              processProjectMentions(safeFollowUp, targetAgentId, project, conversation, orgId);
+              logAsync(processProjectMentions(safeFollowUp, targetAgentId, project, conversation, orgId),
+                `project-followup-mentions:${project.id}`);
             })
             .catch((err) => {
               console.error('[project] Coordinator follow-up failed:', err.message);
             });
+        })
+        .catch((err) => {
+          console.error('[project] Mention fan-out failed:', err?.stack || err);
         });
     })
     .catch((err) => {
@@ -1125,13 +1023,14 @@ router.post('/:id/messages', async (req, res) => {
       const msg = getOne('SELECT * FROM messages WHERE id = ?', [msgId]);
       broadcastToOrg(orgId, { type: 'new_message', project_id: project.id, message: msg });
       broadcastUnreadCounts(orgId);
-    });
+    }), `project-primary:${targetAgentId}`);
 
   // Process @mentions in user message — but skip when the coordinator is the target.
   // The coordinator is expected to dispatch via its own response (see line ~1000),
   // so firing user-mentions here would double-dispatch every @mention alongside it.
   if (targetAgentId !== project.coordinator_agent_id) {
-    processProjectMentions(content.trim(), targetAgentId, project, conversation, orgId);
+    logAsync(processProjectMentions(content.trim(), targetAgentId, project, conversation, orgId),
+      `project-user-mentions:${project.id}`);
   }
 });
 
@@ -1355,10 +1254,6 @@ router.delete('/:id/secrets/:secretId', (req, res) => {
 
 // ==================== Git Branches ====================
 
-function repoPath(orgId, projectId) {
-  return orgPath(orgId, 'projects', projectId, 'repo.git');
-}
-
 // GET /api/projects/:id/branches
 router.get('/:id/branches', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
@@ -1439,25 +1334,6 @@ router.get('/:id/diff/:branch(*)', (req, res) => {
 });
 
 // ==================== PR Operations ====================
-
-function getProviderForProject(project, orgId) {
-  // Prefer project-scoped token from project secrets
-  let token;
-  if (project.git_token_key) {
-    const secretRow = getOne(
-      'SELECT value FROM project_secrets WHERE project_id = ? AND key = ?',
-      [project.id, project.git_token_key]
-    );
-    if (secretRow) token = decrypt(secretRow.value);
-  }
-  // Fallback to org-level token
-  if (!token) {
-    const providerKey = `${project.git_provider}_api_token`;
-    token = getOrgSetting(orgId, providerKey);
-  }
-  const apiUrl = project.git_api_url || getOrgSetting(orgId, `${project.git_provider}_api_url`);
-  return getGitProvider(project, token, { apiUrl: apiUrl || undefined, insecure: !!project.git_insecure_ssl });
-}
 
 // POST /api/projects/:id/pr — create PR
 router.post('/:id/pr', async (req, res) => {
@@ -1677,7 +1553,7 @@ projectWebhooksRouter.post('/:projectId/:type', (req, res) => {
     if (project.auto_merge && payload.pr_number && ['success', 'completed'].includes(status.toLowerCase())) {
       try {
         const provider = getProviderForProject(project, project.org_id);
-        provider.mergePR(parseInt(payload.pr_number)).then(() => {
+        logAsync(provider.mergePR(parseInt(payload.pr_number)).then(() => {
           if (conversation && coordId) {
             const mergeMsg = generateId();
             run(
@@ -1687,8 +1563,10 @@ projectWebhooksRouter.post('/:projectId/:type', (req, res) => {
                `[Auto-merge] PR #${payload.pr_number} merged after successful build #${buildRef}`]
             );
           }
-        }).catch(() => {});
-      } catch {}
+        }), `auto-merge:pr-${payload.pr_number}`);
+      } catch (err) {
+        console.error('[project] auto-merge provider init failed:', err?.message);
+      }
     }
   }
 

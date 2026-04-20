@@ -10,6 +10,7 @@ import { redactSecrets } from '../utils/redact.js';
 import { enrichReplyTo } from '../services/message-service.js';
 import { sendError } from '../utils/response.js';
 import { requireAgentInOrg } from '../utils/route-guards.js';
+import { logAsync } from '../utils/async.js';
 
 const router = Router();
 
@@ -110,7 +111,7 @@ function processAgentMentions(text, sourceAgentId, conversationId, orgId, notify
     broadcastToOrg(orgId, { type: 'new_message', agent_id: target.id, message: notifyMsg });
     broadcastUnreadCounts(orgId);
 
-    executor
+    logAsync(executor
       .enqueue(target.id, prompt, { priority: false, maxTurns: 50, conversationId: targetConv.id })
       .then((result) => {
         console.log(`[@notify] "${target.name}" completed (${result.duration_ms}ms)`);
@@ -142,7 +143,7 @@ function processAgentMentions(text, sourceAgentId, conversationId, orgId, notify
         const errMsg = getOne('SELECT * FROM messages WHERE id = ?', [errMsgId]);
         broadcastToOrg(orgId, { type: 'new_message', agent_id: target.id, message: errMsg });
         broadcastUnreadCounts(orgId);
-      });
+      }), `@notify:${target.name}`);
   }
 
   // If notifyOnly, skip @AgentName handling (caller handles it with wait-for-response)
@@ -185,7 +186,7 @@ function processAgentMentions(text, sourceAgentId, conversationId, orgId, notify
       [mentioned.id]
     );
 
-    executor
+    logAsync(executor
       .enqueue(mentioned.id, prompt, {
         priority: true, maxTurns: 50,
         conversationId: targetConv?.id || conversationId,
@@ -220,7 +221,7 @@ function processAgentMentions(text, sourceAgentId, conversationId, orgId, notify
         const convOwner = getOne('SELECT agent_id FROM conversations WHERE id = ?', [conversationId]);
         broadcastToOrg(orgId, { type: 'new_message', agent_id: mentioned.id, message: msg, conversation_owner: convOwner?.agent_id });
         broadcastUnreadCounts(orgId);
-      });
+      }), `@mention:${mentioned.name}`);
   }
 }
 
@@ -440,7 +441,7 @@ router.post('/:id/messages', requireAgentInOrg(), async (req, res) => {
       ? `${executorPrompt}\n\n--- Responses from mentioned agents ---\n${mentionContext}\n--- End responses ---`
       : executorPrompt;
 
-    executor
+    logAsync(executor
       .enqueue(agent.id, enrichedPrompt, { priority: true, maxTurns: 50, conversationId: execConversationId, displayConversationId, images })
       .then((result) => {
         const msgId = generateId();
@@ -507,7 +508,7 @@ router.post('/:id/messages', requireAgentInOrg(), async (req, res) => {
           broadcastToOrg(orgId, { type: 'runtime_auth_error', runtime, message: safeErr });
         }
         broadcastUnreadCounts(orgId);
-      });
+      }), `primary-agent:${agent.name}`);
   };
 
   if (mentionedAgents.length > 0) {
@@ -562,12 +563,12 @@ router.post('/:id/messages', requireAgentInOrg(), async (req, res) => {
     });
 
     // Wait for all mentioned agents, then execute primary agent with their responses
-    Promise.all(mentionPromises).then(responses => {
+    logAsync(Promise.all(mentionPromises).then(responses => {
       executePrimaryAgent(responses.join('\n\n'));
     }).catch(err => {
       console.error('[mentions] Primary agent execution failed:', err.message);
       executePrimaryAgent();
-    });
+    }), `mention-fanout:${agent.name}`);
   } else {
     // No mentions — execute primary agent immediately
     executePrimaryAgent();

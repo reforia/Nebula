@@ -38,6 +38,24 @@ import setupRouter from './routes/setup.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
+// Fire-and-forget executor chains live in routes/messages.js and services/*; a
+// rejection that escapes their inner .catch() would otherwise vanish silently.
+// Log here so operators see the breadcrumb; don't exit — the HTTP server and
+// other agent sessions should keep serving.
+process.on('unhandledRejection', (reason, promise) => {
+  const detail = reason instanceof Error ? (reason.stack || reason.message) : reason;
+  console.error('[unhandledRejection]', detail, 'promise:', promise);
+});
+
+// uncaughtException is a last resort — by the time it fires, process state may
+// be corrupt. Log richly and let the process exit so the container restarts
+// clean rather than limping along. Docker compose restart:unless-stopped picks
+// up from here.
+process.on('uncaughtException', (err, origin) => {
+  console.error('[uncaughtException]', origin, err?.stack || err);
+  process.exit(1);
+});
+
 const app = express();
 const server = http.createServer(app);
 
