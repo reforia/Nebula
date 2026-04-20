@@ -5,6 +5,7 @@ import { EventEmitter } from 'events';
 import { generateId } from '../utils/uuid.js';
 import { getOne, getAll, run, getOrgSetting, orgPath } from '../db.js';
 import { decrypt } from '../utils/crypto.js';
+import { redactSecrets } from '../utils/redact.js';
 import { isRemoteConnected, executeRemote, cancelRemote } from './remote-agents.js';
 import { registry } from '../backends/index.js';
 import { generateIntegrationSkills } from './integrations.js';
@@ -55,7 +56,7 @@ class AgentExecutor extends EventEmitter {
   _buildContextRecovery(conversationId, tokenBudget = 25000) {
     const charBudget = tokenBudget * 4;
     const messages = getAll(
-      'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at DESC',
+      'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 500',
       [conversationId]
     );
 
@@ -320,10 +321,12 @@ class AgentExecutor extends EventEmitter {
            result.total_cost_usd || 0, result.duration_ms || 0]
         );
       } else {
+        const rawMsg = String(error?.message || error).slice(0, 1000);
+        const safeMsg = redactSecrets(rawMsg, agentOrgId, agentId);
         run(
           `INSERT INTO usage_events (id, org_id, agent_id, conversation_id, backend, model, duration_ms, status, error_message)
            VALUES (?, ?, ?, ?, ?, ?, 0, 'error', ?)`,
-          [generateId(), agentOrgId, agentId, conversationId, runtime, model, String(error?.message || error).slice(0, 1000)]
+          [generateId(), agentOrgId, agentId, conversationId, runtime, model, safeMsg]
         );
       }
     } catch (e) {

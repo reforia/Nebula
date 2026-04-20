@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { getMessages, Message } from '../api/client';
 
 export function useMessages(agentId: string | null, conversationId: string | null) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const loadMoreInFlight = useRef(false);
 
   const loadMessages = useCallback(async (id: string, convId?: string) => {
     setLoading(true);
@@ -20,17 +21,25 @@ export function useMessages(agentId: string | null, conversationId: string | nul
   }, []);
 
   const loadMore = useCallback(async () => {
-    if (!agentId || messages.length === 0 || !hasMore) return;
+    if (!agentId || messages.length === 0 || !hasMore || loadMoreInFlight.current) return;
+    loadMoreInFlight.current = true;
     try {
-      const data = await getMessages(agentId, 50, messages[0].id, conversationId || undefined);
+      const firstId = messages[0].id;
+      const data = await getMessages(agentId, 50, firstId, conversationId || undefined);
       if (data.length === 0) {
         setHasMore(false);
         return;
       }
-      setMessages(prev => [...data, ...prev]);
+      setMessages(prev => {
+        const existingIds = new Set(prev.map(m => m.id));
+        const deduped = data.filter(m => !existingIds.has(m.id));
+        return [...deduped, ...prev];
+      });
       setHasMore(data.length >= 50);
     } catch (err) {
       console.error('Failed to load more messages:', err);
+    } finally {
+      loadMoreInFlight.current = false;
     }
   }, [agentId, conversationId, messages, hasMore]);
 

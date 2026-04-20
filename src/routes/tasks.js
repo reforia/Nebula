@@ -4,6 +4,7 @@ import { generateId } from '../utils/uuid.js';
 import { registerCron, unregisterCron, fireTask, validateCron } from '../services/scheduler.js';
 import { buildUpdate } from '../utils/update-builder.js';
 import { requireAgentInOrg } from '../utils/route-guards.js';
+import { sendError } from '../utils/response.js';
 
 // Agent-scoped routes: mounted at /api/agents
 export const agentTasksRouter = Router();
@@ -19,12 +20,12 @@ agentTasksRouter.post('/:id/tasks', requireAgentInOrg(), (req, res) => {
   const { name, prompt, cron_expression, trigger_type, enabled, max_turns, timeout_ms } = req.body;
   const type = trigger_type || 'cron';
 
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
-  if (!prompt || !prompt.trim()) return res.status(400).json({ error: 'Prompt is required' });
+  if (!name || !name.trim()) return sendError(res, 400, 'Name is required');
+  if (!prompt || !prompt.trim()) return sendError(res, 400, 'Prompt is required');
 
   if (type === 'cron') {
-    if (!cron_expression) return res.status(400).json({ error: 'Cron expression is required for cron triggers' });
-    if (!validateCron(cron_expression)) return res.status(400).json({ error: 'Invalid cron expression' });
+    if (!cron_expression) return sendError(res, 400, 'Cron expression is required for cron triggers');
+    if (!validateCron(cron_expression)) return sendError(res, 400, 'Invalid cron expression');
   }
 
   const id = generateId();
@@ -69,10 +70,10 @@ tasksRouter.put('/:id', (req, res) => {
      WHERE t.id = ? AND a.org_id = ?`,
     [req.params.id, req.orgId]
   );
-  if (!task) return res.status(404).json({ error: 'Task not found' });
+  if (!task) return sendError(res, 404, 'Task not found');
 
   if (req.body.cron_expression && !validateCron(req.body.cron_expression)) {
-    return res.status(400).json({ error: 'Invalid cron expression' });
+    return sendError(res, 400, 'Invalid cron expression');
   }
 
   const { updates, params } = buildUpdate(req.body,
@@ -99,7 +100,7 @@ tasksRouter.delete('/:id', (req, res) => {
      WHERE t.id = ? AND a.org_id = ?`,
     [req.params.id, req.orgId]
   );
-  if (!task) return res.status(404).json({ error: 'Task not found' });
+  if (!task) return sendError(res, 404, 'Task not found');
 
   unregisterCron(task.id);
   run('DELETE FROM tasks WHERE id = ?', [req.params.id]);
@@ -115,7 +116,7 @@ tasksRouter.post('/:id/trigger', (req, res) => {
      WHERE t.id = ? AND a.org_id = ?`,
     [req.params.id, req.orgId]
   );
-  if (!task) return res.status(404).json({ error: 'Task not found' });
+  if (!task) return sendError(res, 404, 'Task not found');
 
   fireTask(task.id);
   res.json({ ok: true, message: 'Task triggered' });

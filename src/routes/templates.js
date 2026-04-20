@@ -2,9 +2,11 @@ import { Router } from 'express';
 import { getAll, getOne, run, orgPath } from '../db.js';
 import { generateId } from '../utils/uuid.js';
 import { initScheduler } from '../services/scheduler.js';
+import { createAgent } from '../services/agent-creation.js';
 import fs from 'fs';
 import path from 'path';
 import { registry } from '../backends/index.js';
+import { sendError } from '../utils/response.js';
 
 const router = Router();
 
@@ -69,7 +71,7 @@ router.get('/', (req, res) => {
  */
 router.get('/export', (req, res) => {
   const org = getOne('SELECT name FROM organizations WHERE id = ?', [req.orgId]);
-  if (!org) return res.status(404).json({ error: 'Organization not found' });
+  if (!org) return sendError(res, 404, 'Organization not found');
 
   const agents = getAll('SELECT * FROM agents WHERE org_id = ?', [req.orgId]);
 
@@ -163,7 +165,7 @@ router.post('/import', (req, res) => {
   const template = req.body;
 
   if (!template || !template.agents || !Array.isArray(template.agents)) {
-    return res.status(400).json({ error: 'Invalid template: agents array is required' });
+    return sendError(res, 400, 'Invalid template: agents array is required');
   }
 
   const counts = { agents: 0, skills: 0, tasks: 0, mcp_servers: 0 };
@@ -197,36 +199,17 @@ router.post('/import', (req, res) => {
     if (!agentDef.name) continue;
 
     const agentName = uniqueAgentName(agentDef.name);
-    const agentId = generateId();
-    const sessionId = generateId();
 
-    run(
-      `INSERT INTO agents (id, org_id, name, role, session_id, allowed_tools, model, backend, timeout_ms, execution_mode)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        agentId, req.orgId, agentName,
-        agentDef.role || '',
-        sessionId,
-        agentDef.allowed_tools || 'Read,Grep,Glob,WebFetch,Bash',
-        agentDef.model || 'claude-sonnet-4-6',
-        agentDef.backend || registry.getDefault(req.orgId)?.cliId || '',
-        agentDef.timeout_ms || null,
-        agentDef.execution_mode || 'local',
-      ]
-    );
-
-    // Create agent directory
-    const agentDir = orgPath(req.orgId, 'agents', agentId);
-    fs.mkdirSync(agentDir, { recursive: true });
-    fs.mkdirSync(path.join(agentDir, 'workspace'), { recursive: true });
-
-    // Create initial conversation
-    const convId = generateId();
-    run(
-      `INSERT INTO conversations (id, agent_id, title, session_id, session_initialized)
-       VALUES (?, ?, 'General', ?, 0)`,
-      [convId, agentId, sessionId]
-    );
+    const { agentId } = createAgent(req.orgId, {
+      name: agentName,
+      role: agentDef.role || '',
+      model: agentDef.model || 'claude-sonnet-4-6',
+      backend: agentDef.backend || registry.getDefault(req.orgId)?.cliId || '',
+      allowed_tools: agentDef.allowed_tools || 'Read,Grep,Glob,WebFetch,Bash',
+      timeout_ms: agentDef.timeout_ms || null,
+      execution_mode: agentDef.execution_mode || 'local',
+      skip_welcome: true,
+    });
 
     counts.agents++;
 
@@ -314,12 +297,12 @@ router.post('/import', (req, res) => {
  */
 router.get('/:id', (req, res) => {
   const filePath = path.join(TEMPLATES_DIR, `${req.params.id}.json`);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Template not found' });
+  if (!fs.existsSync(filePath)) return sendError(res, 404, 'Template not found');
   try {
     const tpl = JSON.parse(fs.readFileSync(filePath, 'utf8'));
     res.json(tpl);
   } catch {
-    res.status(500).json({ error: 'Failed to parse template' });
+    sendError(res, 500, 'Failed to parse template');
   }
 });
 

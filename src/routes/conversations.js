@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getAll, getOne, run } from '../db.js';
 import { generateId } from '../utils/uuid.js';
 import { requireAgentInOrg } from '../utils/route-guards.js';
+import { sendError } from '../utils/response.js';
 
 // Agent-scoped routes: mounted at /api/agents
 export const agentConversationsRouter = Router();
@@ -50,10 +51,10 @@ conversationsRouter.put('/:id', (req, res) => {
      WHERE c.id = ? AND a.org_id = ?`,
     [req.params.id, req.orgId]
   );
-  if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+  if (!conversation) return sendError(res, 404, 'Conversation not found');
 
   const { title } = req.body;
-  if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required' });
+  if (!title || !title.trim()) return sendError(res, 400, 'Title is required');
 
   run(
     "UPDATE conversations SET title = ?, updated_at = datetime('now') WHERE id = ?",
@@ -72,14 +73,14 @@ conversationsRouter.delete('/:id', (req, res) => {
      WHERE c.id = ? AND a.org_id = ?`,
     [req.params.id, req.orgId]
   );
-  if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+  if (!conversation) return sendError(res, 404, 'Conversation not found');
 
   const count = getOne(
     'SELECT COUNT(*) as count FROM conversations WHERE agent_id = ?',
     [conversation.agent_id]
   );
   if (count.count <= 1) {
-    return res.status(400).json({ error: 'Cannot delete the last conversation' });
+    return sendError(res, 400, 'Cannot delete the last conversation');
   }
 
   run('DELETE FROM conversations WHERE id = ?', [req.params.id]);

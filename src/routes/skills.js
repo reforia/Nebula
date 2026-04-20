@@ -3,6 +3,7 @@ import { getAll, getOne, run } from '../db.js';
 import { generateId } from '../utils/uuid.js';
 import { checkSecretsForEnable } from '../services/secret-refs.js';
 import { requireAgentInOrg } from '../utils/route-guards.js';
+import { sendError } from '../utils/response.js';
 
 // Org-wide skills: mounted at /api/skills
 const skillsRouter = Router();
@@ -19,7 +20,7 @@ skillsRouter.get('/', (req, res) => {
 // POST /api/skills — create org-wide skill
 skillsRouter.post('/', (req, res) => {
   const { name, description, content, enabled } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+  if (!name || !name.trim()) return sendError(res, 400, 'Name is required');
 
   const id = generateId();
   run(
@@ -38,14 +39,14 @@ skillsRouter.put('/:id', (req, res) => {
     'SELECT * FROM custom_skills WHERE id = ? AND org_id = ? AND agent_id IS NULL',
     [req.params.id, req.orgId]
   );
-  if (!skill) return res.status(404).json({ error: 'Skill not found' });
+  if (!skill) return sendError(res, 404, 'Skill not found');
 
   // Guard: check secrets are configured before enabling
   if (req.body.enabled && !skill.enabled) {
     const content = req.body.content !== undefined ? req.body.content : skill.content;
     const { ok, missing } = checkSecretsForEnable(req.orgId, null, content);
     if (!ok) {
-      return res.status(400).json({ error: `Missing secrets: ${missing.join(', ')}. Configure them in the Secrets tab.` });
+      return sendError(res, 400, `Missing secrets: ${missing.join(', ')}. Configure them in the Secrets tab.`);
     }
   }
 
@@ -79,7 +80,7 @@ skillsRouter.delete('/:id', (req, res) => {
     'SELECT * FROM custom_skills WHERE id = ? AND org_id = ? AND agent_id IS NULL',
     [req.params.id, req.orgId]
   );
-  if (!skill) return res.status(404).json({ error: 'Skill not found' });
+  if (!skill) return sendError(res, 404, 'Skill not found');
 
   run('DELETE FROM custom_skills WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
@@ -103,7 +104,7 @@ agentSkillsRouter.get('/:id/skills', requireAgentInOrg(), (req, res) => {
 // POST /api/agents/:id/skills — create agent-specific skill
 agentSkillsRouter.post('/:id/skills', requireAgentInOrg(), (req, res) => {
   const { name, description, content, enabled } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+  if (!name || !name.trim()) return sendError(res, 400, 'Name is required');
 
   const id = generateId();
   run(
@@ -117,19 +118,19 @@ agentSkillsRouter.post('/:id/skills', requireAgentInOrg(), (req, res) => {
 });
 
 // PUT /api/agents/:id/skills/:skillId — update agent-specific skill
-agentSkillsRouter.put('/:id/skills/:skillId', (req, res) => {
+agentSkillsRouter.put('/:id/skills/:skillId', requireAgentInOrg(), (req, res) => {
   const skill = getOne(
-    'SELECT * FROM custom_skills WHERE id = ? AND agent_id = ?',
-    [req.params.skillId, req.params.id]
+    'SELECT * FROM custom_skills WHERE id = ? AND agent_id = ? AND org_id = ?',
+    [req.params.skillId, req.params.id, req.orgId]
   );
-  if (!skill) return res.status(404).json({ error: 'Skill not found' });
+  if (!skill) return sendError(res, 404, 'Skill not found');
 
   // Guard: check secrets are configured before enabling
   if (req.body.enabled && !skill.enabled) {
     const content = req.body.content !== undefined ? req.body.content : skill.content;
     const { ok, missing } = checkSecretsForEnable(req.orgId, req.params.id, content);
     if (!ok) {
-      return res.status(400).json({ error: `Missing secrets: ${missing.join(', ')}. Configure them in the Secrets tab.` });
+      return sendError(res, 400, `Missing secrets: ${missing.join(', ')}. Configure them in the Secrets tab.`);
     }
   }
 
@@ -158,12 +159,12 @@ agentSkillsRouter.put('/:id/skills/:skillId', (req, res) => {
 });
 
 // DELETE /api/agents/:id/skills/:skillId — delete agent-specific skill
-agentSkillsRouter.delete('/:id/skills/:skillId', (req, res) => {
+agentSkillsRouter.delete('/:id/skills/:skillId', requireAgentInOrg(), (req, res) => {
   const skill = getOne(
-    'SELECT * FROM custom_skills WHERE id = ? AND agent_id = ?',
-    [req.params.skillId, req.params.id]
+    'SELECT * FROM custom_skills WHERE id = ? AND agent_id = ? AND org_id = ?',
+    [req.params.skillId, req.params.id, req.orgId]
   );
-  if (!skill) return res.status(404).json({ error: 'Skill not found' });
+  if (!skill) return sendError(res, 404, 'Skill not found');
 
   run('DELETE FROM custom_skills WHERE id = ?', [req.params.skillId]);
   res.json({ ok: true });

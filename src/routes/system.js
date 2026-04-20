@@ -5,10 +5,12 @@ import { getAll, getOne, run, getOrgSetting, setOrgSetting, orgPath } from '../d
 import { generateId } from '../utils/uuid.js';
 import { resetTransporter } from '../services/email.js';
 import { encrypt } from '../utils/crypto.js';
+import { upsertSecret } from '../utils/secret-upsert.js';
 import { createBackup, listBackups, restoreBackup } from '../services/backup.js';
 import { getReferencedSecrets, checkSecretDeletable } from '../services/secret-refs.js';
 import { rescheduleCleanup, runCleanupNow, getCleanupStatus } from '../services/cleanup.js';
 import { registry } from '../backends/index.js';
+import { sendError, catchError } from '../utils/response.js';
 
 const router = Router();
 
@@ -156,13 +158,13 @@ router.post('/runtimes/detect', (req, res) => {
 // PUT /api/runtimes/default — set org default runtime
 router.put('/runtimes/default', (req, res) => {
   const { runtime } = req.body;
-  if (!runtime) return res.status(400).json({ error: 'runtime is required' });
+  if (!runtime) return sendError(res, 400, 'runtime is required');
 
   // registry imported at top
   try {
     registry.get(runtime); // throws if unknown
   } catch {
-    return res.status(400).json({ error: `Unknown runtime: ${runtime}` });
+    return sendError(res, 400, `Unknown runtime: ${runtime}`);
   }
 
   setOrgSetting(req.orgId, 'default_runtime', runtime);
@@ -287,7 +289,7 @@ router.delete('/errors/:id', (req, res) => {
     'SELECT id FROM usage_events WHERE id = ? AND org_id = ? AND status = ?',
     [req.params.id, req.orgId, 'error']
   );
-  if (!event) return res.status(404).json({ error: 'Error not found' });
+  if (!event) return sendError(res, 404, 'Error not found');
   run('DELETE FROM usage_events WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 });
@@ -308,7 +310,7 @@ router.get('/global-knowledge', (req, res) => {
 // PUT /api/global-knowledge — org-scoped
 router.put('/global-knowledge', (req, res) => {
   const { content } = req.body;
-  if (content === undefined) return res.status(400).json({ error: 'Content is required' });
+  if (content === undefined) return sendError(res, 400, 'Content is required');
 
   const filePath = orgPath(req.orgId, 'global', 'CLAUDE.md');
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -330,31 +332,10 @@ router.get('/secrets', (req, res) => {
 // POST /api/secrets — create or update a secret
 router.post('/secrets', (req, res) => {
   const { key, value } = req.body;
-  if (!key || !key.trim()) return res.status(400).json({ error: 'Key is required' });
-  if (!value || !value.trim()) return res.status(400).json({ error: 'Value is required' });
+  if (!key || !key.trim()) return sendError(res, 400, 'Key is required');
+  if (!value || !value.trim()) return sendError(res, 400, 'Value is required');
 
-  const cleanKey = key.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-
-  const existing = getOne(
-    'SELECT id FROM org_secrets WHERE org_id = ? AND key = ?',
-    [req.orgId, cleanKey]
-  );
-
-  const encryptedValue = encrypt(value.trim());
-
-  if (existing) {
-    run(
-      "UPDATE org_secrets SET value = ?, updated_at = datetime('now') WHERE id = ?",
-      [encryptedValue, existing.id]
-    );
-  } else {
-    const id = generateId();
-    run(
-      'INSERT INTO org_secrets (id, org_id, key, value) VALUES (?, ?, ?, ?)',
-      [id, req.orgId, cleanKey, encryptedValue]
-    );
-  }
-
+  const cleanKey = upsertSecret('org_secrets', 'org_id', req.orgId, key, value);
   res.json({ ok: true, key: cleanKey });
 });
 
@@ -364,13 +345,13 @@ router.delete('/secrets/:id', (req, res) => {
     'SELECT id, key FROM org_secrets WHERE id = ? AND org_id = ?',
     [req.params.id, req.orgId]
   );
-  if (!secret) return res.status(404).json({ error: 'Secret not found' });
+  if (!secret) return sendError(res, 404, 'Secret not found');
 
   // Guard: can't delete a secret referenced by enabled skills/MCP
   const { deletable, references } = checkSecretDeletable(req.orgId, secret.key, 'org');
   if (!deletable) {
     const names = references.map(r => `${r.name} (${r.type})`).join(', ');
-    return res.status(400).json({ error: `Secret is referenced by: ${names}. Disable them first.` });
+    return sendError(res, 400, `Secret is referenced by: ${names}. Disable them first.`);
   }
 
   run('DELETE FROM org_secrets WHERE id = ?', [req.params.id]);
@@ -397,7 +378,7 @@ router.post('/backups', (req, res) => {
   if (backupPath) {
     res.status(201).json({ ok: true, filename: path.basename(backupPath) });
   } else {
-    res.status(500).json({ error: 'Backup failed' });
+    sendError(res, 500, 'Backup failed');
   }
 });
 
@@ -407,7 +388,7 @@ router.post('/backups/:filename/restore', (req, res) => {
     restoreBackup(req.params.filename);
     res.json({ ok: true, message: 'Restored. Server restart required.' });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    catchError(res, 400, 'Backup restore failed', err);
   }
 });
 
@@ -424,11 +405,11 @@ try {
 // POST /api/feedback — proxy to Platform feedback endpoint
 router.post('/feedback', async (req, res) => {
   const { type, subject, message, metadata } = req.body;
-  if (!message?.trim()) return res.status(400).json({ error: 'Message is required' });
+  if (!message?.trim()) return sendError(res, 400, 'Message is required');
 
   const license = getLicenseStatus();
   const licenseKey = license?.key;
-  if (!licenseKey) return res.status(400).json({ error: 'No license configured' });
+  if (!licenseKey) return sendError(res, 400, 'No license configured');
 
   try {
     const resp = await fetch(`${PLATFORM_URL}/api/v1/feedback`, {
@@ -459,7 +440,7 @@ router.post('/feedback', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('[feedback] Submission error:', err.message);
-    res.status(500).json({ error: 'Could not reach the feedback service' });
+    sendError(res, 500, 'Could not reach the feedback service');
   }
 });
 
@@ -469,7 +450,7 @@ router.post('/cleanup/run', (req, res) => {
     const result = runCleanupNow();
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    catchError(res, 500, 'Cleanup failed', err);
   }
 });
 
@@ -478,7 +459,7 @@ router.get('/cleanup/status', (req, res) => {
   try {
     res.json(getCleanupStatus(req.orgId));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    catchError(res, 500, 'Failed to get cleanup status', err);
   }
 });
 

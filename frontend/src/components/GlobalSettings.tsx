@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { getSettings, updateSettings, getStatus, OrgStatus, getGlobalKnowledge, updateGlobalKnowledge, getSecrets, createSecret, deleteSecret, OrgSecret, updateOrg, getErrors, dismissError, dismissAllErrors, ExecutionError, exportTemplate, importTemplate, OrgTemplate, getSecretRefs, SecretRef, listTemplates, getTemplate, TemplateSummary, getCleanupStatus, runCleanup, CleanupStatus, getRuntimes, detectRuntimes, setDefaultRuntime, RuntimeInfo, deleteOrg } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
-// Models are now static from runtime adapters — no cache invalidation needed
 import SkillEditor from './SkillEditor';
 import Modal from './Modal';
 import McpServerEditor from './McpServerEditor';
+import SecretsList from './SecretsList';
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + 'B';
@@ -714,147 +714,11 @@ export default function GlobalSettings({ onClose, onLogout, onRefresh }: Props) 
               <p className="text-xs text-nebula-muted">
                 Store API tokens and credentials securely. Reference them in custom skills as <code className="text-nebula-accent">{'{{KEY_NAME}}'}</code> — values are resolved at runtime and never shown in the UI.
               </p>
-
-              {/* Add new secret */}
-              <div className="bg-nebula-bg border border-nebula-border rounded-lg p-3 space-y-2">
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <label className="text-[11px] text-nebula-muted block mb-1">Key</label>
-                    <input
-                      value={newSecretKey}
-                      onChange={e => setNewSecretKey(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))}
-                      placeholder="GITEA_TOKEN"
-                      className="w-full px-3 py-2 bg-nebula-surface border border-nebula-border rounded text-sm text-nebula-text font-mono focus:outline-none focus:border-nebula-accent/50"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="text-[11px] text-nebula-muted block mb-1">Value</label>
-                    <input
-                      type="password"
-                      value={newSecretValue}
-                      onChange={e => setNewSecretValue(e.target.value)}
-                      placeholder="token or password"
-                      className="w-full px-3 py-2 bg-nebula-surface border border-nebula-border rounded text-sm text-nebula-text font-mono focus:outline-none focus:border-nebula-accent/50"
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  {secretError && <p className="text-xs text-nebula-red">{secretError}</p>}
-                  <div className="flex-1" />
-                  <button
-                    onClick={async () => {
-                      if (!newSecretKey.trim() || !newSecretValue.trim()) {
-                        setSecretError('Both key and value are required');
-                        return;
-                      }
-                      setSecretSaving(true);
-                      setSecretError('');
-                      try {
-                        await createSecret(newSecretKey, newSecretValue);
-                        setNewSecretKey('');
-                        setNewSecretValue('');
-                        refreshSecrets();
-                      } catch (err: any) {
-                        setSecretError(err.message);
-                      } finally {
-                        setSecretSaving(false);
-                      }
-                    }}
-                    disabled={secretSaving}
-                    className="px-3 py-1.5 text-xs bg-nebula-accent text-nebula-bg rounded hover:brightness-110 disabled:opacity-50 font-medium"
-                  >
-                    {secretSaving ? 'Saving...' : 'Add Secret'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Existing secrets */}
-              {secrets.length === 0 ? (
-                <p className="text-sm text-nebula-muted py-4 text-center">No secrets configured</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {secrets.map(s => (
-                    <div key={s.id} className="bg-nebula-bg border border-nebula-border rounded-lg px-3 py-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <code className="text-sm text-nebula-accent font-mono">{`{{${s.key}}}`}</code>
-                          <span className="text-[11px] text-nebula-muted ml-3">
-                            {s.updated_at !== s.created_at ? 'updated' : 'added'} {new Date(s.updated_at + 'Z').toLocaleDateString()}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-nebula-muted font-mono">••••••••</span>
-                          <button
-                            onClick={() => { setEditingSecretId(s.id); setEditSecretValue(''); }}
-                            className="text-xs text-nebula-accent hover:brightness-110 px-1"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={async () => {
-                              if (!confirm(`Delete secret ${s.key}?`)) return;
-                              try {
-                              await deleteSecret(s.id);
-                              refreshSecrets();
-                              } catch (err: any) { setSecretError(err.message); return; }
-                            }}
-                            className="text-xs text-red-400 hover:text-red-300 px-1"
-                          >
-                            Del
-                          </button>
-                        </div>
-                      </div>
-                      {editingSecretId === s.id && (
-                        <div className="flex gap-2 mt-2">
-                          <input
-                            type="password"
-                            value={editSecretValue}
-                            onChange={e => setEditSecretValue(e.target.value)}
-                            onKeyDown={async e => {
-                              if (e.key === 'Enter' && editSecretValue.trim()) {
-                                setEditSecretSaving(true);
-                                try {
-                                  await createSecret(s.key, editSecretValue.trim());
-                                  setEditingSecretId(null); setEditSecretValue('');
-                                  refreshSecrets();
-                                } catch (err: any) { setSecretError(err.message); }
-                                finally { setEditSecretSaving(false); }
-                              }
-                            }}
-                            placeholder="New secret value"
-                            autoFocus
-                            className="flex-1 px-2 py-1.5 bg-nebula-surface border border-nebula-border rounded text-sm text-nebula-text font-mono focus:outline-none focus:border-nebula-accent/50"
-                          />
-                          <button
-                            onClick={async () => {
-                              if (!editSecretValue.trim()) return;
-                              setEditSecretSaving(true);
-                              try {
-                                await createSecret(s.key, editSecretValue.trim());
-                                setEditingSecretId(null); setEditSecretValue('');
-                                refreshSecrets();
-                              } catch (err: any) { setSecretError(err.message); }
-                              finally { setEditSecretSaving(false); }
-                            }}
-                            disabled={editSecretSaving || !editSecretValue.trim()}
-                            className="px-3 py-1.5 text-xs bg-nebula-accent/20 text-nebula-accent rounded hover:bg-nebula-accent/30 disabled:opacity-30 font-medium"
-                          >
-                            {editSecretSaving ? '...' : 'Save'}
-                          </button>
-                          <button
-                            onClick={() => { setEditingSecretId(null); setEditSecretValue(''); }}
-                            className="px-2 py-1.5 text-xs text-nebula-muted hover:text-nebula-text"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Discovered secret references — unconfigured */}
+              <SecretsList
+                load={() => getSecrets()}
+                create={(key, value) => createSecret(key, value)}
+                remove={(id) => deleteSecret(id)}
+              />
               {secretRefs.filter(r => !r.configured).length > 0 && (
                 <div className="space-y-1.5">
                   <p className="text-xs text-nebula-muted font-medium">Required by skills (not yet configured):</p>

@@ -5,6 +5,7 @@ import { executeTask } from './task-executor.js';
 const SYS_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const activeCrons = new Map(); // taskId -> Cron instance
+const runningTasks = new Set(); // taskId set for concurrency guard
 
 // Stagger queue — when multiple cron tasks fire at the same time,
 // space them out by `task_stagger_ms` to avoid rate limit exhaustion.
@@ -90,24 +91,34 @@ function getStaggerMs() {
 }
 
 export async function fireTask(taskId) {
-  const task = getOne('SELECT * FROM tasks WHERE id = ?', [taskId]);
-  if (!task || !task.enabled) {
-    if (task) console.warn(`[scheduler] Task "${task.name}" is disabled, skipping`);
+  if (runningTasks.has(taskId)) {
+    console.warn(`[scheduler] Task ${taskId} already running, skipping`);
     return;
   }
+  runningTasks.add(taskId);
 
-  const agent = getOne('SELECT * FROM agents WHERE id = ?', [task.agent_id]);
-  if (!agent || !agent.enabled) {
-    console.warn(`[scheduler] Agent for task "${task.name}" is ${agent ? 'disabled' : 'missing'}, skipping`);
-    return;
+  try {
+    const task = getOne('SELECT * FROM tasks WHERE id = ?', [taskId]);
+    if (!task || !task.enabled) {
+      if (task) console.warn(`[scheduler] Task "${task.name}" is disabled, skipping`);
+      return;
+    }
+
+    const agent = getOne('SELECT * FROM agents WHERE id = ?', [task.agent_id]);
+    if (!agent || !agent.enabled) {
+      console.warn(`[scheduler] Agent for task "${task.name}" is ${agent ? 'disabled' : 'missing'}, skipping`);
+      return;
+    }
+
+    if (getOrgSetting(agent.org_id, 'cron_enabled') === '0') {
+      console.warn(`[scheduler] Cron tasks paused for org ${agent.org_id}, skipping task "${task.name}"`);
+      return;
+    }
+
+    await executeTask(task, agent, task.prompt, { source: 'scheduler' });
+  } finally {
+    runningTasks.delete(taskId);
   }
-
-  if (getOrgSetting(agent.org_id, 'cron_enabled') === '0') {
-    console.warn(`[scheduler] Cron tasks paused for org ${agent.org_id}, skipping task "${task.name}"`);
-    return;
-  }
-
-  await executeTask(task, agent, task.prompt, { source: 'scheduler' });
 }
 
 export function stopAll() {

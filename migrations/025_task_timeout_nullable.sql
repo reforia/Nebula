@@ -16,6 +16,7 @@ CREATE TABLE tasks_new (
   project_id TEXT DEFAULT NULL REFERENCES projects(id) ON DELETE SET NULL
 );
 
-INSERT INTO tasks_new SELECT * FROM tasks;
+INSERT INTO tasks_new (id, agent_id, name, prompt, trigger_type, cron_expression, webhook_secret, enabled, max_turns, timeout_ms, last_run_at, last_status, created_at, project_id)
+SELECT id, agent_id, name, prompt, trigger_type, cron_expression, webhook_secret, enabled, max_turns, timeout_ms, last_run_at, last_status, created_at, project_id FROM tasks;
 DROP TABLE tasks;
 ALTER TABLE tasks_new RENAME TO tasks;

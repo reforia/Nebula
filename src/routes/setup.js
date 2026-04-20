@@ -11,6 +11,8 @@ import { registry } from '../backends/index.js';
 import { initScheduler } from '../services/scheduler.js';
 import { requireAuth } from './auth.js';
 import { generateAccessToken, generateRefreshToken, setTokenCookies } from '../utils/jwt.js';
+import { createAgent } from '../services/agent-creation.js';
+import { sendError } from '../utils/response.js';
 
 const router = Router();
 
@@ -46,18 +48,18 @@ router.get('/status', (req, res) => {
  */
 router.post('/create-admin', (req, res) => {
   if (hasUsers()) {
-    return res.status(403).json({ error: 'Admin already exists' });
+    return sendError(res, 403, 'Admin already exists');
   }
   if ((process.env.AUTH_PROVIDER || 'local') !== 'local') {
-    return res.status(400).json({ error: 'Local registration not available with this auth provider' });
+    return sendError(res, 400, 'Local registration not available with this auth provider');
   }
 
   const { email, password, name, orgName } = req.body;
   if (!email?.trim() || !password) {
-    return res.status(400).json({ error: 'Email and password are required' });
+    return sendError(res, 400, 'Email and password are required');
   }
   if (password.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    return sendError(res, 400, 'Password must be at least 8 characters');
   }
 
   const normalizedEmail = email.trim().toLowerCase();
@@ -94,7 +96,7 @@ router.post('/create-admin', (req, res) => {
   } catch (err) {
     try { db.exec('ROLLBACK'); } catch {}
     console.error('[setup] Create admin error:', err);
-    res.status(500).json({ error: 'Failed to create admin account' });
+    sendError(res, 500, 'Failed to create admin account');
   }
 });
 
@@ -104,7 +106,7 @@ router.post('/create-admin', (req, res) => {
  */
 router.post('/complete', requireAuth, (req, res) => {
   if (isSetupComplete()) {
-    return res.status(403).json({ error: 'Setup already completed' });
+    return sendError(res, 403, 'Setup already completed');
   }
 
   const { settings, templateId } = req.body;
@@ -146,51 +148,19 @@ router.post('/complete', requireAuth, (req, res) => {
       for (const agentDef of template.agents) {
         if (!agentDef.name) continue;
 
-        // Skip if agent already exists in org (idempotent)
         const existing = getOne('SELECT id FROM agents WHERE org_id = ? AND name = ?', [req.orgId, agentDef.name]);
         if (existing) continue;
 
-        const agentId = generateId();
-        const sessionId = generateId();
+        const { agentId } = createAgent(req.orgId, {
+          name: agentDef.name,
+          role: agentDef.role || '',
+          model: agentDef.model || 'claude-sonnet-4-6',
+          backend: agentDef.backend || registry.getDefault(req.orgId)?.cliId || '',
+          allowed_tools: agentDef.allowed_tools || 'Read,Grep,Glob,WebFetch,Bash',
+          timeout_ms: agentDef.timeout_ms || null,
+          execution_mode: agentDef.execution_mode || 'local',
+        });
 
-        run(
-          `INSERT INTO agents (id, org_id, name, role, session_id, allowed_tools, model, backend, timeout_ms, execution_mode)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            agentId, req.orgId,
-            String(agentDef.name).slice(0, 100),
-            String(agentDef.role || '').slice(0, 2000),
-            sessionId,
-            agentDef.allowed_tools || 'Read,Grep,Glob,WebFetch,Bash',
-            agentDef.model || 'claude-sonnet-4-6',
-            agentDef.backend || registry.getDefault(req.orgId)?.cliId || '',
-            agentDef.timeout_ms || null,
-            agentDef.execution_mode || 'local',
-          ]
-        );
-
-        const convId = generateId();
-        run(
-          `INSERT INTO conversations (id, agent_id, title, session_id, session_initialized)
-           VALUES (?, ?, 'General', ?, 0)`,
-          [convId, agentId, sessionId]
-        );
-
-        // Insert welcome message so the agent shows setup instructions
-        const welcomeMsgId = generateId();
-        run(
-          `INSERT INTO messages (id, agent_id, conversation_id, role, content, message_type, is_read, created_at)
-           VALUES (?, ?, ?, 'system', ?, 'system', 1, datetime('now'))`,
-          [welcomeMsgId, agentId, convId,
-           `Welcome! This agent needs some initial setup before it can work effectively.\n\nPlease provide:\n1. **Role** — What is this agent's primary responsibility? (set in agent settings)\n2. **Access** — What tools, APIs, or repos will it need?\n3. **Context** — Any domain knowledge or guidelines it should follow?\n\nOnce you share this, the agent will set up its working environment — guidelines, org profile, and memory.`]
-        );
-
-        // Create agent directory
-        const agentDir = orgPath(req.orgId, 'agents', agentId);
-        fs.mkdirSync(agentDir, { recursive: true });
-        fs.mkdirSync(path.join(agentDir, 'workspace'), { recursive: true });
-
-        // Agent tasks
         if (Array.isArray(agentDef.tasks)) {
           for (const taskDef of agentDef.tasks) {
             if (!taskDef.name) continue;
@@ -202,7 +172,6 @@ router.post('/complete', requireAuth, (req, res) => {
           }
         }
 
-        // Agent skills
         if (Array.isArray(agentDef.skills)) {
           for (const skillDef of agentDef.skills) {
             if (!skillDef.name) continue;
@@ -214,7 +183,6 @@ router.post('/complete', requireAuth, (req, res) => {
           }
         }
 
-        // Agent MCP servers
         if (Array.isArray(agentDef.mcp_servers)) {
           for (const mcpDef of agentDef.mcp_servers) {
             if (!mcpDef.name) continue;
@@ -261,7 +229,7 @@ router.post('/complete', requireAuth, (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('[setup] Complete error:', err);
-    res.status(500).json({ error: 'Setup failed' });
+    sendError(res, 500, 'Setup failed');
   }
 });
 

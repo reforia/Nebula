@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import { marked } from 'marked';
 import { getOrgSetting } from '../db.js';
 import { listMailboxes, fetchInbox, fetchMessage, searchMail } from '../services/mail.js';
+import { catchError, sendError } from '../utils/response.js';
 
 const router = Router();
 
@@ -12,7 +13,7 @@ router.get('/folders', async (req, res) => {
     const folders = await listMailboxes(req.orgId);
     res.json(folders);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    catchError(res, 500, 'Failed to list mail folders', err);
   }
 });
 
@@ -25,7 +26,7 @@ router.get('/inbox', async (req, res) => {
     const result = await fetchInbox(req.orgId, { folder, limit, page });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    catchError(res, 500, 'Failed to list messages', err);
   }
 });
 
@@ -49,7 +50,7 @@ router.get('/search', async (req, res) => {
     });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    catchError(res, 500, 'Failed to search messages', err);
   }
 });
 
@@ -57,12 +58,12 @@ router.get('/search', async (req, res) => {
 router.get('/:uid', async (req, res) => {
   try {
     const uid = parseInt(req.params.uid);
-    if (isNaN(uid)) return res.status(400).json({ error: 'Invalid UID' });
+    if (isNaN(uid)) return sendError(res, 400, 'Invalid UID');
     const folder = req.query.folder || 'INBOX';
     const message = await fetchMessage(req.orgId, uid, { folder });
     res.json(message);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    catchError(res, 500, 'Failed to fetch message', err);
   }
 });
 
@@ -70,8 +71,8 @@ router.get('/:uid', async (req, res) => {
 router.post('/send', async (req, res) => {
   try {
     const { to, cc, bcc, subject, body, html, in_reply_to } = req.body;
-    if (!to) return res.status(400).json({ error: 'Recipient (to) is required' });
-    if (!subject && !body) return res.status(400).json({ error: 'Subject or body is required' });
+    if (!to) return sendError(res, 400, 'Recipient (to) is required');
+    if (!subject && !body) return sendError(res, 400, 'Subject or body is required');
 
     const host = getOrgSetting(req.orgId, 'smtp_host');
     const port = parseInt(getOrgSetting(req.orgId, 'smtp_port') || '587', 10);
@@ -80,7 +81,7 @@ router.post('/send', async (req, res) => {
     const from = getOrgSetting(req.orgId, 'smtp_from');
 
     if (!host || !user || !pass || !from) {
-      return res.status(500).json({ error: 'SMTP not configured' });
+      return sendError(res, 500, 'SMTP not configured');
     }
 
     const transporter = nodemailer.createTransport({
@@ -106,7 +107,7 @@ router.post('/send', async (req, res) => {
     const info = await transporter.sendMail(mailOptions);
     res.json({ ok: true, messageId: info.messageId });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    catchError(res, 500, 'Failed to send message', err);
   }
 });
 

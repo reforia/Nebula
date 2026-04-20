@@ -10,11 +10,13 @@ import * as git from '../services/git.js';
 import { getGitProvider } from '../services/git-providers.js';
 import { redactSecrets } from '../utils/redact.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
+import { upsertSecret } from '../utils/secret-upsert.js';
 import { enrichReplyTo } from '../services/message-service.js';
 import { registerCron, unregisterCron, fireTask, validateCron } from '../services/scheduler.js';
 import { buildUpdate } from '../utils/update-builder.js';
 import { evaluateReadiness, updateProjectReadiness } from '../services/readiness.js';
 import { getGitProviderAccount } from '../services/git-providers.js';
+import { catchError, sendError } from '../utils/response.js';
 
 const router = Router();
 
@@ -28,8 +30,8 @@ function getProject(projectId, orgId) {
 // POST /api/projects/validate-provider — test git provider token and report capabilities
 router.post('/validate-provider', async (req, res) => {
   const { provider, api_url, token, insecure_ssl } = req.body;
-  if (!provider || !token) return res.status(400).json({ error: 'Provider and token are required' });
-  if (provider === 'gitea' && !api_url) return res.status(400).json({ error: 'API URL is required for Gitea' });
+  if (!provider || !token) return sendError(res, 400, 'Provider and token are required');
+  if (provider === 'gitea' && !api_url) return sendError(res, 400, 'API URL is required for Gitea');
 
   try {
     const account = getGitProviderAccount(provider, token, { apiUrl: api_url, insecure: !!insecure_ssl });
@@ -37,21 +39,21 @@ router.post('/validate-provider', async (req, res) => {
     const capabilities = await account.checkPermissions();
     res.json({ valid: true, username: user.username, capabilities, errors: [] });
   } catch (err) {
-    res.json({ valid: false, username: '', capabilities: { list_repos: false, read_repos: false, create_repos: false, create_webhooks: false }, errors: [err.message] });
+    catchError(res, 500, 'Provider validation failed', err);
   }
 });
 
 // POST /api/projects/list-repos — list repos accessible to the token
 router.post('/list-repos', async (req, res) => {
   const { provider, api_url, token, page, per_page, search, insecure_ssl } = req.body;
-  if (!provider || !token) return res.status(400).json({ error: 'Provider and token are required' });
+  if (!provider || !token) return sendError(res, 400, 'Provider and token are required');
 
   try {
     const account = getGitProviderAccount(provider, token, { apiUrl: api_url, insecure: !!insecure_ssl });
     const result = await account.listRepos({ page: page || 1, perPage: per_page || 50, search: search || '' });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    catchError(res, 500, 'Failed to list repositories', err);
   }
 });
 
@@ -81,28 +83,28 @@ router.post('/', async (req, res) => {
   const { name, description, git_remote_url, git_clone_url, git_api_url, git_provider, git_insecure_ssl, coordinator_agent_id, auto_merge, agents, milestones,
     git_token, repo_mode, repo_full_name, repo_name, repo_private } = req.body;
 
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+  if (!name || !name.trim()) return sendError(res, 400, 'Name is required');
   if (repo_mode !== 'create_new' && (!git_remote_url || !git_remote_url.trim())) {
-    return res.status(400).json({ error: 'Git remote URL is required' });
+    return sendError(res, 400, 'Git remote URL is required');
   }
   if (repo_mode === 'create_new' && (!repo_name || !repo_name.trim())) {
-    return res.status(400).json({ error: 'Repository name is required' });
+    return sendError(res, 400, 'Repository name is required');
   }
   if (repo_mode === 'create_new' && !git_token) {
-    return res.status(400).json({ error: 'API token is required to create a repository' });
+    return sendError(res, 400, 'API token is required to create a repository');
   }
 
   const existingName = getOne('SELECT id FROM projects WHERE name = ? AND org_id = ?', [name.trim(), req.orgId]);
-  if (existingName) return res.status(400).json({ error: 'A project with this name already exists' });
+  if (existingName) return sendError(res, 400, 'A project with this name already exists');
 
   if (git_remote_url) {
     const existingRepo = getOne('SELECT id, name FROM projects WHERE git_remote_url = ? AND org_id = ?', [git_remote_url.trim(), req.orgId]);
-    if (existingRepo) return res.status(400).json({ error: `A project already exists for this repository: "${existingRepo.name}"` });
+    if (existingRepo) return sendError(res, 400, `A project already exists for this repository: "${existingRepo.name}"`);
   }
 
-  if (!coordinator_agent_id) return res.status(400).json({ error: 'Coordinator agent is required' });
+  if (!coordinator_agent_id) return sendError(res, 400, 'Coordinator agent is required');
   const coordinatorAgent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [coordinator_agent_id, req.orgId]);
-  if (!coordinatorAgent) return res.status(400).json({ error: 'Coordinator agent not found' });
+  if (!coordinatorAgent) return sendError(res, 400, 'Coordinator agent not found');
 
   const id = generateId();
   run(
@@ -194,7 +196,7 @@ router.post('/', async (req, res) => {
     run('DELETE FROM projects WHERE id = ?', [id]);
     // Clean up any partial repo dir
     try { fs.rmSync(repoGitPath, { recursive: true, force: true }); } catch {}
-    return res.status(500).json({ error: `Git repository initialization failed: ${e.message}` });
+    return catchError(res, 500, 'Git repository initialization failed', e);
   }
 
   // Store git token as project secret if provided
@@ -236,7 +238,7 @@ router.post('/', async (req, res) => {
 // GET /api/projects/:id — project detail
 router.get('/:id', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   project.agents = getAll(`
     SELECT pa.*, a.name as agent_name, a.emoji as agent_emoji
@@ -268,17 +270,17 @@ router.get('/:id', (req, res) => {
 // PUT /api/projects/:id — update project
 router.put('/:id', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   // Pre-validation for specific fields
   if (req.body.name !== undefined) {
-    if (!req.body.name || !req.body.name.trim()) return res.status(400).json({ error: 'Name is required' });
+    if (!req.body.name || !req.body.name.trim()) return sendError(res, 400, 'Name is required');
     const dup = getOne('SELECT id FROM projects WHERE name = ? AND org_id = ? AND id != ?', [req.body.name.trim(), req.orgId, project.id]);
-    if (dup) return res.status(400).json({ error: 'A project with this name already exists' });
+    if (dup) return sendError(res, 400, 'A project with this name already exists');
   }
   if (req.body.coordinator_agent_id) {
     const agent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [req.body.coordinator_agent_id, req.orgId]);
-    if (!agent) return res.status(400).json({ error: 'Coordinator agent not found' });
+    if (!agent) return sendError(res, 400, 'Coordinator agent not found');
   }
 
   const { updates, params } = buildUpdate(req.body,
@@ -300,7 +302,7 @@ router.put('/:id', (req, res) => {
 // DELETE /api/projects/:id
 router.delete('/:id', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   run('DELETE FROM projects WHERE id = ?', [project.id]);
   res.json({ ok: true });
@@ -311,7 +313,7 @@ router.delete('/:id', (req, res) => {
 // GET /api/projects/:id/dashboard — aggregated project overview
 router.get('/:id/dashboard', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   // Milestone progress
   const milestones = getAll(
@@ -389,7 +391,7 @@ router.get('/:id/dashboard', (req, res) => {
 // GET /api/projects/:id/milestones — list with nested deliverables
 router.get('/:id/milestones', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const milestones = getAll(
     'SELECT * FROM project_milestones WHERE project_id = ? ORDER BY sort_order, created_at',
@@ -409,10 +411,10 @@ router.get('/:id/milestones', (req, res) => {
 // POST /api/projects/:id/milestones
 router.post('/:id/milestones', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const { name, description, sort_order } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+  if (!name || !name.trim()) return sendError(res, 400, 'Name is required');
 
   const id = generateId();
   run(
@@ -432,10 +434,10 @@ router.put('/milestones/:id', (req, res) => {
     JOIN projects p ON m.project_id = p.id
     WHERE m.id = ? AND p.org_id = ?
   `, [req.params.id, req.orgId]);
-  if (!milestone) return res.status(404).json({ error: 'Milestone not found' });
+  if (!milestone) return sendError(res, 404, 'Milestone not found');
 
   if (req.body.name !== undefined && (!req.body.name || !req.body.name.trim())) {
-    return res.status(400).json({ error: 'Name is required' });
+    return sendError(res, 400, 'Name is required');
   }
 
   const { updates, params } = buildUpdate(req.body,
@@ -460,7 +462,7 @@ router.delete('/milestones/:id', (req, res) => {
     JOIN projects p ON m.project_id = p.id
     WHERE m.id = ? AND p.org_id = ?
   `, [req.params.id, req.orgId]);
-  if (!milestone) return res.status(404).json({ error: 'Milestone not found' });
+  if (!milestone) return sendError(res, 404, 'Milestone not found');
 
   run('DELETE FROM project_milestones WHERE id = ?', [milestone.id]);
   updateProjectReadiness(milestone.project_id);
@@ -476,14 +478,14 @@ router.post('/milestones/:id/deliverables', (req, res) => {
     JOIN projects p ON m.project_id = p.id
     WHERE m.id = ? AND p.org_id = ?
   `, [req.params.id, req.orgId]);
-  if (!milestone) return res.status(404).json({ error: 'Milestone not found' });
+  if (!milestone) return sendError(res, 404, 'Milestone not found');
 
   const { name, pass_criteria, branch_name, assigned_agent_id, sort_order } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+  if (!name || !name.trim()) return sendError(res, 400, 'Name is required');
 
   if (assigned_agent_id) {
     const agent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [assigned_agent_id, req.orgId]);
-    if (!agent) return res.status(400).json({ error: 'Assigned agent not found' });
+    if (!agent) return sendError(res, 400, 'Assigned agent not found');
   }
 
   const id = generateId();
@@ -506,14 +508,14 @@ router.put('/deliverables/:id', (req, res) => {
     JOIN projects p ON m.project_id = p.id
     WHERE d.id = ? AND p.org_id = ?
   `, [req.params.id, req.orgId]);
-  if (!deliverable) return res.status(404).json({ error: 'Deliverable not found' });
+  if (!deliverable) return sendError(res, 404, 'Deliverable not found');
 
   if (req.body.name !== undefined && (!req.body.name || !req.body.name.trim())) {
-    return res.status(400).json({ error: 'Name is required' });
+    return sendError(res, 400, 'Name is required');
   }
   if (req.body.assigned_agent_id) {
     const agent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [req.body.assigned_agent_id, req.orgId]);
-    if (!agent) return res.status(400).json({ error: 'Assigned agent not found' });
+    if (!agent) return sendError(res, 400, 'Assigned agent not found');
   }
 
   const { updates, params } = buildUpdate(req.body,
@@ -564,7 +566,7 @@ router.delete('/deliverables/:id', (req, res) => {
     JOIN projects p ON m.project_id = p.id
     WHERE d.id = ? AND p.org_id = ?
   `, [req.params.id, req.orgId]);
-  if (!deliverable) return res.status(404).json({ error: 'Deliverable not found' });
+  if (!deliverable) return sendError(res, 404, 'Deliverable not found');
 
   run('DELETE FROM project_deliverables WHERE id = ?', [deliverable.id]);
   updateProjectReadiness(deliverable.project_id);
@@ -576,7 +578,7 @@ router.delete('/deliverables/:id', (req, res) => {
 // GET /api/projects/:id/agents
 router.get('/:id/agents', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const agents = getAll(`
     SELECT pa.*, a.name as agent_name, a.emoji as agent_emoji, a.role as agent_role, a.enabled as agent_enabled
@@ -590,16 +592,16 @@ router.get('/:id/agents', (req, res) => {
 // POST /api/projects/:id/agents — assign agent
 router.post('/:id/agents', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const { agent_id, role, max_concurrent } = req.body;
-  if (!agent_id) return res.status(400).json({ error: 'agent_id is required' });
+  if (!agent_id) return sendError(res, 400, 'agent_id is required');
 
   const agent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [agent_id, req.orgId]);
-  if (!agent) return res.status(400).json({ error: 'Agent not found' });
+  if (!agent) return sendError(res, 400, 'Agent not found');
 
   const existing = getOne('SELECT * FROM project_agents WHERE project_id = ? AND agent_id = ?', [project.id, agent_id]);
-  if (existing) return res.status(400).json({ error: 'Agent already assigned to this project' });
+  if (existing) return sendError(res, 400, 'Agent already assigned to this project');
 
   const assignRole = role || 'contributor';
   if (assignRole === 'coordinator') {
@@ -607,7 +609,7 @@ router.post('/:id/agents', (req, res) => {
       "SELECT * FROM project_agents WHERE project_id = ? AND role = 'coordinator'",
       [project.id]
     );
-    if (existingCoord) return res.status(400).json({ error: 'Project already has a coordinator' });
+    if (existingCoord) return sendError(res, 400, 'Project already has a coordinator');
   }
 
   run(
@@ -628,13 +630,13 @@ router.post('/:id/agents', (req, res) => {
 // PUT /api/projects/:id/agents/:agentId — update assignment
 router.put('/:id/agents/:agentId', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const assignment = getOne(
     'SELECT * FROM project_agents WHERE project_id = ? AND agent_id = ?',
     [project.id, req.params.agentId]
   );
-  if (!assignment) return res.status(404).json({ error: 'Agent assignment not found' });
+  if (!assignment) return sendError(res, 404, 'Agent assignment not found');
 
   const { role, max_concurrent } = req.body;
   const updates = [];
@@ -646,7 +648,7 @@ router.put('/:id/agents/:agentId', (req, res) => {
         "SELECT * FROM project_agents WHERE project_id = ? AND role = 'coordinator' AND agent_id != ?",
         [project.id, req.params.agentId]
       );
-      if (existingCoord) return res.status(400).json({ error: 'Project already has a coordinator' });
+      if (existingCoord) return sendError(res, 400, 'Project already has a coordinator');
     }
     updates.push('role = ?');
     params.push(role);
@@ -673,13 +675,13 @@ router.put('/:id/agents/:agentId', (req, res) => {
 // DELETE /api/projects/:id/agents/:agentId
 router.delete('/:id/agents/:agentId', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const assignment = getOne(
     'SELECT * FROM project_agents WHERE project_id = ? AND agent_id = ?',
     [project.id, req.params.agentId]
   );
-  if (!assignment) return res.status(404).json({ error: 'Agent assignment not found' });
+  if (!assignment) return sendError(res, 404, 'Agent assignment not found');
 
   run('DELETE FROM project_agents WHERE project_id = ? AND agent_id = ?', [project.id, req.params.agentId]);
   updateProjectReadiness(project.id);
@@ -691,7 +693,7 @@ router.delete('/:id/agents/:agentId', (req, res) => {
 // GET /api/projects/:id/links
 router.get('/:id/links', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const links = getAll('SELECT * FROM project_links WHERE project_id = ? ORDER BY created_at', [project.id]);
   res.json(links);
@@ -700,13 +702,13 @@ router.get('/:id/links', (req, res) => {
 // POST /api/projects/:id/links
 router.post('/:id/links', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const { type, provider, url, config } = req.body;
   const validTypes = ['issue_tracker', 'knowledge_base', 'ci'];
-  if (!type || !validTypes.includes(type)) return res.status(400).json({ error: `Type must be one of: ${validTypes.join(', ')}` });
-  if (!provider || !provider.trim()) return res.status(400).json({ error: 'Provider is required' });
-  if (!url || !url.trim()) return res.status(400).json({ error: 'URL is required' });
+  if (!type || !validTypes.includes(type)) return sendError(res, 400, `Type must be one of: ${validTypes.join(', ')}`);
+  if (!provider || !provider.trim()) return sendError(res, 400, 'Provider is required');
+  if (!url || !url.trim()) return sendError(res, 400, 'URL is required');
 
   const id = generateId();
   run(
@@ -721,10 +723,10 @@ router.post('/:id/links', (req, res) => {
 // PUT /api/projects/:id/links/:linkId
 router.put('/:id/links/:linkId', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const link = getOne('SELECT * FROM project_links WHERE id = ? AND project_id = ?', [req.params.linkId, project.id]);
-  if (!link) return res.status(404).json({ error: 'Link not found' });
+  if (!link) return sendError(res, 404, 'Link not found');
 
   const fields = ['type', 'provider', 'url', 'config'];
   const updates = [];
@@ -735,7 +737,7 @@ router.put('/:id/links/:linkId', (req, res) => {
       let val = req.body[field];
       if (field === 'type') {
         const validTypes = ['issue_tracker', 'knowledge_base', 'ci'];
-        if (!validTypes.includes(val)) return res.status(400).json({ error: `Type must be one of: ${validTypes.join(', ')}` });
+        if (!validTypes.includes(val)) return sendError(res, 400, `Type must be one of: ${validTypes.join(', ')}`);
       }
       if (field === 'config' && typeof val === 'object') val = JSON.stringify(val);
       updates.push(`${field} = ?`);
@@ -755,10 +757,10 @@ router.put('/:id/links/:linkId', (req, res) => {
 // DELETE /api/projects/:id/links/:linkId
 router.delete('/:id/links/:linkId', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const link = getOne('SELECT * FROM project_links WHERE id = ? AND project_id = ?', [req.params.linkId, project.id]);
-  if (!link) return res.status(404).json({ error: 'Link not found' });
+  if (!link) return sendError(res, 404, 'Link not found');
 
   run('DELETE FROM project_links WHERE id = ?', [link.id]);
   res.json({ ok: true });
@@ -769,7 +771,7 @@ router.delete('/:id/links/:linkId', (req, res) => {
 // GET /api/projects/:id/messages — list messages in project conversation
 router.get('/:id/messages', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const conversation = getOne('SELECT * FROM conversations WHERE project_id = ?', [project.id]);
   if (!conversation) return res.json([]);
@@ -800,7 +802,7 @@ router.get('/:id/messages', (req, res) => {
 // POST /api/projects/:id/messages/read — mark all project messages as read
 router.post('/:id/messages/read', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const conversation = getOne('SELECT id FROM conversations WHERE project_id = ?', [project.id]);
   if (conversation) {
@@ -897,16 +899,17 @@ function processProjectMentions(text, excludeAgentId, project, conversation, org
       })
       .catch((err) => {
         const msgId = generateId();
+        console.error('[project] Agent mention execution failed:', err);
         run(
           `INSERT INTO messages (id, agent_id, conversation_id, role, content, message_type, is_read, created_at)
            VALUES (?, ?, ?, 'assistant', ?, 'error', 0, datetime('now'))`,
-          [msgId, mentioned.id, conversation.id, `Error: ${err.message}`]
+          [msgId, mentioned.id, conversation.id, 'Execution failed']
         );
         const msg = getOne('SELECT * FROM messages WHERE id = ?', [msgId]);
         broadcastToOrg(orgId, { type: 'new_message', project_id: project.id, message: msg });
         broadcastUnreadCounts(orgId);
 
-        return { agentName: mentioned.name, agentEmoji: mentioned.emoji, text: `Error: ${err.message}`, error: true };
+        return { agentName: mentioned.name, agentEmoji: mentioned.emoji, text: 'Execution failed', error: true };
       });
 
     promises.push(promise);
@@ -918,13 +921,13 @@ function processProjectMentions(text, excludeAgentId, project, conversation, org
 // POST /api/projects/:id/messages — post to project conversation, trigger agent execution
 router.post('/:id/messages', async (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const { content, agent_id, reply_to_id } = req.body;
-  if (!content || !content.trim()) return res.status(400).json({ error: 'Message content is required' });
+  if (!content || !content.trim()) return sendError(res, 400, 'Message content is required');
 
   const conversation = getOne('SELECT * FROM conversations WHERE project_id = ?', [project.id]);
-  if (!conversation) return res.status(404).json({ error: 'Project conversation not found' });
+  if (!conversation) return sendError(res, 404, 'Project conversation not found');
 
   // Determine which agent responds: explicit agent_id, or coordinator by default
   let targetAgentId = agent_id;
@@ -939,9 +942,9 @@ router.post('/:id/messages', async (req, res) => {
       'SELECT * FROM project_agents WHERE project_id = ? AND agent_id = ?',
       [project.id, targetAgentId]
     );
-    if (!assignment) return res.status(400).json({ error: 'Agent is not assigned to this project' });
+    if (!assignment) return sendError(res, 400, 'Agent is not assigned to this project');
     targetAgent = getOne('SELECT * FROM agents WHERE id = ? AND enabled = 1', [targetAgentId]);
-    if (!targetAgent) return res.status(400).json({ error: 'Agent not found or disabled' });
+    if (!targetAgent) return sendError(res, 400, 'Agent not found or disabled');
   }
 
   // Store user message
@@ -1067,10 +1070,11 @@ router.post('/:id/messages', async (req, res) => {
     })
     .catch((err) => {
       const msgId = generateId();
+      console.error('[project] Agent execution failed:', err);
       run(
         `INSERT INTO messages (id, agent_id, conversation_id, role, content, message_type, is_read, created_at)
          VALUES (?, ?, ?, 'assistant', ?, 'error', 0, datetime('now'))`,
-        [msgId, targetAgentId, conversation.id, `Error: ${err.message}`]
+        [msgId, targetAgentId, conversation.id, 'Task execution error']
       );
       const msg = getOne('SELECT * FROM messages WHERE id = ?', [msgId]);
       broadcastToOrg(orgId, { type: 'new_message', project_id: project.id, message: msg });
@@ -1090,7 +1094,7 @@ router.post('/:id/messages', async (req, res) => {
 // GET /api/projects/:id/tasks — list tasks scoped to this project
 router.get('/:id/tasks', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const tasks = getAll(
     `SELECT t.*, a.name as agent_name, a.emoji as agent_emoji
@@ -1106,24 +1110,24 @@ router.get('/:id/tasks', (req, res) => {
 // POST /api/projects/:id/tasks — create a project-scoped task
 router.post('/:id/tasks', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const { name, prompt, cron_expression, trigger_type, enabled, max_turns, timeout_ms, agent_id } = req.body;
   const type = trigger_type || 'cron';
 
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
-  if (!prompt || !prompt.trim()) return res.status(400).json({ error: 'Prompt is required' });
+  if (!name || !name.trim()) return sendError(res, 400, 'Name is required');
+  if (!prompt || !prompt.trim()) return sendError(res, 400, 'Prompt is required');
 
   // Default to coordinator agent if no agent_id specified
   const targetAgentId = agent_id || project.coordinator_agent_id;
-  if (!targetAgentId) return res.status(400).json({ error: 'No agent specified and project has no coordinator' });
+  if (!targetAgentId) return sendError(res, 400, 'No agent specified and project has no coordinator');
 
   const agent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [targetAgentId, req.orgId]);
-  if (!agent) return res.status(400).json({ error: 'Agent not found' });
+  if (!agent) return sendError(res, 400, 'Agent not found');
 
   if (type === 'cron') {
-    if (!cron_expression) return res.status(400).json({ error: 'Cron expression is required for cron triggers' });
-    if (!validateCron(cron_expression)) return res.status(400).json({ error: 'Invalid cron expression' });
+    if (!cron_expression) return sendError(res, 400, 'Cron expression is required for cron triggers');
+    if (!validateCron(cron_expression)) return sendError(res, 400, 'Invalid cron expression');
   }
 
   const id = generateId();
@@ -1152,7 +1156,7 @@ router.post('/:id/tasks', (req, res) => {
 // GET /api/projects/:id/readiness — evaluate and return readiness state
 router.get('/:id/readiness', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const result = updateProjectReadiness(project.id);
   res.json(result);
@@ -1161,7 +1165,7 @@ router.get('/:id/readiness', (req, res) => {
 // GET /api/projects/:id/checklist — list agent-created checklist items
 router.get('/:id/checklist', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const items = getAll(
     'SELECT * FROM project_checklist WHERE project_id = ? ORDER BY created_at ASC',
@@ -1173,10 +1177,10 @@ router.get('/:id/checklist', (req, res) => {
 // POST /api/projects/:id/checklist — add a custom prerequisite
 router.post('/:id/checklist', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const { label } = req.body;
-  if (!label || !label.trim()) return res.status(400).json({ error: 'Label is required' });
+  if (!label || !label.trim()) return sendError(res, 400, 'Label is required');
 
   const id = generateId();
   run('INSERT INTO project_checklist (id, project_id, label) VALUES (?, ?, ?)',
@@ -1190,11 +1194,11 @@ router.post('/:id/checklist', (req, res) => {
 // PUT /api/projects/:id/checklist/:itemId — mark met/unmet
 router.put('/:id/checklist/:itemId', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const item = getOne('SELECT * FROM project_checklist WHERE id = ? AND project_id = ?',
     [req.params.itemId, project.id]);
-  if (!item) return res.status(404).json({ error: 'Checklist item not found' });
+  if (!item) return sendError(res, 404, 'Checklist item not found');
 
   const { met } = req.body;
   run('UPDATE project_checklist SET met = ? WHERE id = ?', [met ? 1 : 0, req.params.itemId]);
@@ -1206,11 +1210,11 @@ router.put('/:id/checklist/:itemId', (req, res) => {
 // DELETE /api/projects/:id/checklist/:itemId — remove custom prerequisite
 router.delete('/:id/checklist/:itemId', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const item = getOne('SELECT * FROM project_checklist WHERE id = ? AND project_id = ?',
     [req.params.itemId, project.id]);
-  if (!item) return res.status(404).json({ error: 'Checklist item not found' });
+  if (!item) return sendError(res, 404, 'Checklist item not found');
 
   run('DELETE FROM project_checklist WHERE id = ?', [req.params.itemId]);
 
@@ -1221,12 +1225,12 @@ router.delete('/:id/checklist/:itemId', (req, res) => {
 // POST /api/projects/:id/launch — explicit activation gate
 router.post('/:id/launch', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-  if (project.status !== 'not_ready') return res.status(400).json({ error: `Project is already ${project.status}` });
+  if (!project) return sendError(res, 404, 'Project not found');
+  if (project.status !== 'not_ready') return sendError(res, 400, `Project is already ${project.status}`);
 
   const readiness = evaluateReadiness(project.id);
   if (!readiness.ready) {
-    return res.status(400).json({ error: 'Project not ready — all prerequisites must be met before launch', readiness });
+    return res.status(400).json({ ok: false, error: 'Project is not ready', readiness });
   }
 
   run("UPDATE projects SET status = 'active', launched_at = datetime('now'), updated_at = datetime('now') WHERE id = ?", [project.id]);
@@ -1237,27 +1241,27 @@ router.post('/:id/launch', (req, res) => {
 // PUT /api/projects/:id/vault/:path(*) — edit vault files (only during not_ready)
 router.put('/:id/vault/:path(*)', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-  if (project.status !== 'not_ready') return res.status(403).json({ error: 'Vault editing is only available during setup phase' });
+  if (!project) return sendError(res, 404, 'Project not found');
+  if (project.status !== 'not_ready') return sendError(res, 403, 'Vault editing is only available during setup phase');
 
   const { content } = req.body;
-  if (content === undefined) return res.status(400).json({ error: 'Content is required' });
+  if (content === undefined) return sendError(res, 400, 'Content is required');
 
   const filePath = req.params.path;
   if (!filePath || filePath.includes('..') || filePath.startsWith('/')) {
-    return res.status(400).json({ error: 'Invalid file path' });
+    return sendError(res, 400, 'Invalid file path');
   }
 
   const repo = repoPath(req.orgId, project.id);
   if (!fs.existsSync(repo)) {
-    return res.status(500).json({ error: 'Project git repository not initialized — try deleting and recreating the project' });
+    return sendError(res, 500, 'Project git repository not initialized — try deleting and recreating the project');
   }
   try {
     git.writeVaultFile(repo, filePath, content);
     updateProjectReadiness(project.id);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: `Failed to write vault file: ${e.message}` });
+    catchError(res, 500, 'Failed to write vault file', e);
   }
 });
 
@@ -1266,7 +1270,7 @@ router.put('/:id/vault/:path(*)', (req, res) => {
 // GET /api/projects/:id/secrets — list keys only (never values)
 router.get('/:id/secrets', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const secrets = getAll(
     'SELECT id, key, created_at, updated_at FROM project_secrets WHERE project_id = ? ORDER BY key ASC',
@@ -1278,42 +1282,26 @@ router.get('/:id/secrets', (req, res) => {
 // POST /api/projects/:id/secrets — create or update
 router.post('/:id/secrets', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const { key, value } = req.body;
-  if (!key || !key.trim()) return res.status(400).json({ error: 'Key is required' });
-  if (!value || !value.trim()) return res.status(400).json({ error: 'Value is required' });
+  if (!key || !key.trim()) return sendError(res, 400, 'Key is required');
+  if (!value || !value.trim()) return sendError(res, 400, 'Value is required');
 
-  const cleanKey = key.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-  const encryptedValue = encrypt(value.trim());
-
-  const existing = getOne(
-    'SELECT id FROM project_secrets WHERE project_id = ? AND key = ?',
-    [project.id, cleanKey]
-  );
-
-  if (existing) {
-    run("UPDATE project_secrets SET value = ?, updated_at = datetime('now') WHERE id = ?",
-      [encryptedValue, existing.id]);
-    res.json({ id: existing.id, key: cleanKey, updated: true });
-  } else {
-    const id = generateId();
-    run('INSERT INTO project_secrets (id, project_id, key, value) VALUES (?, ?, ?, ?)',
-      [id, project.id, cleanKey, encryptedValue]);
-    res.status(201).json({ id, key: cleanKey, created: true });
-  }
+  const cleanKey = upsertSecret('project_secrets', 'project_id', project.id, key, value);
+  res.json({ ok: true, key: cleanKey });
 });
 
 // DELETE /api/projects/:id/secrets/:secretId
 router.delete('/:id/secrets/:secretId', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const secret = getOne(
     'SELECT id FROM project_secrets WHERE id = ? AND project_id = ?',
     [req.params.secretId, project.id]
   );
-  if (!secret) return res.status(404).json({ error: 'Secret not found' });
+  if (!secret) return sendError(res, 404, 'Secret not found');
 
   run('DELETE FROM project_secrets WHERE id = ?', [req.params.secretId]);
   res.json({ ok: true });
@@ -1328,23 +1316,23 @@ function repoPath(orgId, projectId) {
 // GET /api/projects/:id/branches
 router.get('/:id/branches', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   try {
     const branches = git.listBranches(repoPath(req.orgId, project.id));
     res.json(branches);
   } catch (e) {
-    res.status(500).json({ error: `Failed to list branches: ${e.message}` });
+    catchError(res, 500, 'Failed to list branches', e);
   }
 });
 
 // POST /api/projects/:id/branches — create feature branch
 router.post('/:id/branches', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const { name: branchName, agent_id } = req.body;
-  if (!branchName || !branchName.trim()) return res.status(400).json({ error: 'Branch name is required' });
+  if (!branchName || !branchName.trim()) return sendError(res, 400, 'Branch name is required');
 
   const repo = repoPath(req.orgId, project.id);
   try {
@@ -1361,14 +1349,14 @@ router.post('/:id/branches', (req, res) => {
 
     res.status(201).json({ ok: true, branch: branchName.trim() });
   } catch (e) {
-    res.status(500).json({ error: `Failed to create branch: ${e.message}` });
+    catchError(res, 500, 'Failed to create branch', e);
   }
 });
 
 // DELETE /api/projects/:id/branches/:name
 router.delete('/:id/branches/:name(*)', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const branchName = req.params.name;
   const repo = repoPath(req.orgId, project.id);
@@ -1384,20 +1372,20 @@ router.delete('/:id/branches/:name(*)', (req, res) => {
     git.deleteBranch(repo, branchName);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: `Failed to delete branch: ${e.message}` });
+    catchError(res, 500, 'Failed to delete branch', e);
   }
 });
 
 // GET /api/projects/:id/diff/:branch
 router.get('/:id/diff/:branch(*)', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   try {
     const diff = git.diffBranch(repoPath(req.orgId, project.id), req.params.branch);
     res.json(diff);
   } catch (e) {
-    res.status(500).json({ error: `Failed to get diff: ${e.message}` });
+    catchError(res, 500, 'Failed to get diff', e);
   }
 });
 
@@ -1425,32 +1413,32 @@ function getProviderForProject(project, orgId) {
 // POST /api/projects/:id/pr — create PR
 router.post('/:id/pr', async (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const { branch, title, body } = req.body;
-  if (!branch) return res.status(400).json({ error: 'Branch is required' });
-  if (!title) return res.status(400).json({ error: 'Title is required' });
+  if (!branch) return sendError(res, 400, 'Branch is required');
+  if (!title) return sendError(res, 400, 'Title is required');
 
   try {
     const provider = getProviderForProject(project, req.orgId);
     const pr = await provider.createPR(branch, title, body || '');
     res.status(201).json(pr);
   } catch (e) {
-    res.status(500).json({ error: `Failed to create PR: ${e.message}` });
+    catchError(res, 500, 'Failed to create PR', e);
   }
 });
 
 // GET /api/projects/:id/pr — list PRs
 router.get('/:id/pr', async (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   try {
     const provider = getProviderForProject(project, req.orgId);
     const prs = await provider.listPRs(req.query.state || 'open');
     res.json(prs);
   } catch (e) {
-    res.status(500).json({ error: `Failed to list PRs: ${e.message}` });
+    catchError(res, 500, 'Failed to list PRs', e);
   }
 });
 
@@ -1458,7 +1446,7 @@ router.get('/:id/pr', async (req, res) => {
 // Query param ?delete_branch=true to delete the source branch after merge
 router.post('/:id/pr/:number/merge', async (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const deleteBranch = req.query.delete_branch === 'true' || req.body?.delete_branch === true;
 
@@ -1467,7 +1455,7 @@ router.post('/:id/pr/:number/merge', async (req, res) => {
     const result = await provider.mergePR(parseInt(req.params.number), { deleteBranch });
     res.json(result);
   } catch (e) {
-    res.status(500).json({ error: `Failed to merge PR: ${e.message}` });
+    catchError(res, 500, 'Failed to merge PR', e);
   }
 });
 
@@ -1475,7 +1463,7 @@ router.post('/:id/pr/:number/merge', async (req, res) => {
 // Lists webhooks on the git provider, finds one pointing to our URL, and triggers a test delivery.
 router.post('/:id/webhook-test', async (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   try {
     const provider = getProviderForProject(project, req.orgId);
@@ -1489,10 +1477,8 @@ router.post('/:id/webhook-test', async (req, res) => {
     });
 
     if (!matchingHook) {
-      return res.status(400).json({
-        error: 'No webhook found pointing to this project. Configure a webhook on the git repo pointing to: ' +
-          `<your-nebula-url>/api/project-webhooks/${project.id}/ci`,
-      });
+      return sendError(res, 400, 'No webhook found pointing to this project. Configure a webhook on the git repo pointing to: ' +
+        `<your-nebula-url>/api/project-webhooks/${project.id}/ci`);
     }
 
     // Trigger test delivery
@@ -1510,7 +1496,7 @@ router.post('/:id/webhook-test', async (req, res) => {
       res.json({ ok: false, message: 'Test delivery sent but not yet received. The webhook may need a few seconds — try again.' });
     }
   } catch (e) {
-    res.status(500).json({ error: `Webhook test failed: ${e.message}` });
+    catchError(res, 500, 'Webhook test failed', e);
   }
 });
 
@@ -1519,7 +1505,7 @@ router.post('/:id/webhook-test', async (req, res) => {
 // GET /api/projects/:id/vault — list files in vault/ on default branch
 router.get('/:id/vault', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   try {
     const files = git.listVault(repoPath(req.orgId, project.id));
@@ -1532,15 +1518,15 @@ router.get('/:id/vault', (req, res) => {
 // GET /api/projects/:id/vault/* — read file from vault/
 router.get('/:id/vault/:path(*)', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const filePath = req.params.path;
   if (!filePath || filePath.includes('..') || filePath.startsWith('/')) {
-    return res.status(400).json({ error: 'Invalid file path' });
+    return sendError(res, 400, 'Invalid file path');
   }
 
   const content = git.readVaultFile(repoPath(req.orgId, project.id), filePath);
-  if (content === null) return res.status(404).json({ error: 'File not found' });
+  if (content === null) return sendError(res, 404, 'File not found');
 
   // Detect binary vs text by checking for null bytes
   if (content.includes('\0')) {
@@ -1561,13 +1547,13 @@ export const projectWebhooksRouter = Router();
 // POST /api/project-webhooks/:projectId/:type
 projectWebhooksRouter.post('/:projectId/:type', (req, res) => {
   const project = getOne('SELECT * FROM projects WHERE id = ?', [req.params.projectId]);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) return sendError(res, 404, 'Project not found');
 
   const link = getOne(
     'SELECT * FROM project_links WHERE project_id = ? AND type = ?',
     [project.id, req.params.type]
   );
-  if (!link) return res.status(404).json({ error: `No ${req.params.type} integration linked` });
+  if (!link) return sendError(res, 404, `No ${req.params.type} integration linked`);
 
   // Verify webhook secret
   if (link.webhook_secret) {
@@ -1582,16 +1568,16 @@ projectWebhooksRouter.post('/:projectId/:type', (req, res) => {
         const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body));
         const expected = crypto.createHmac('sha256', link.webhook_secret).update(rawBody).digest('hex');
         if (signature !== expected) {
-          return res.status(401).json({ error: 'Invalid signature' });
+          return sendError(res, 401, 'Invalid signature');
         }
       } else {
-        return res.status(401).json({ error: 'Missing or invalid secret' });
+        return sendError(res, 401, 'Missing or invalid secret');
       }
     }
   }
 
   const payload = req.body;
-  if (!payload || typeof payload !== 'object') return res.status(400).json({ error: 'Invalid payload' });
+  if (!payload || typeof payload !== 'object') return sendError(res, 400, 'Invalid payload');
 
   // Stamp webhook_verified_at on every valid webhook receipt
   run("UPDATE projects SET webhook_verified_at = datetime('now') WHERE id = ?", [project.id]);

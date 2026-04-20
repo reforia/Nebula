@@ -24,11 +24,8 @@ export function redactSecrets(text, orgId, agentId) {
   for (const s of allSecrets) {
     try {
       const plaintext = decrypt(s.value);
-      if (plaintext && plaintext.length >= 4) {
-        // Use split+join for literal replacement (no regex escaping needed)
-        while (redacted.includes(plaintext)) {
-          redacted = redacted.split(plaintext).join('[REDACTED]');
-        }
+      if (plaintext && plaintext.length >= 4 && !'[REDACTED]'.includes(plaintext)) {
+        redacted = redacted.split(plaintext).join('[REDACTED]');
       }
     } catch {
       // Skip if decryption fails

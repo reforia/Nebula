@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # Create HOME writable by any user (UID set at runtime via docker-compose)
-RUN mkdir -p /home/node/.ssh && chmod -R 777 /home/node
+RUN mkdir -p /home/node/.ssh && chmod -R 755 /home/node
 
 WORKDIR /app
 
@@ -37,7 +37,7 @@ COPY templates/ ./templates/
 COPY --from=frontend-build /build/frontend/dist ./frontend/dist/
 
 # Create data directory writable by any user
-RUN mkdir -p /data && chmod 777 /data
+RUN mkdir -p /data && chmod 775 /data
 
 # Copy entrypoint
 COPY scripts/entrypoint.sh /entrypoint.sh

@@ -27,3 +27,9 @@ services:
       - AUTH_PROVIDER=${AUTH_PROVIDER:-local}
       - OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI:-}
       - PLATFORM_URL=${PLATFORM_URL:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/auth/me"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

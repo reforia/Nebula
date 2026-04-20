@@ -10,10 +10,10 @@ import { generateId } from '../utils/uuid.js';
 // mismatch so timing cannot leak either the stored token's length or content.
 function safeTokenEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ab, bb);
+  const key = crypto.randomBytes(32);
+  const aHmac = crypto.createHmac('sha256', key).update(a).digest();
+  const bHmac = crypto.createHmac('sha256', key).update(b).digest();
+  return crypto.timingSafeEqual(aHmac, bHmac);
 }
 
 // Connected remote clients: agentId -> { ws, pendingRequests, device }

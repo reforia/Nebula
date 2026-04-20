@@ -2,7 +2,7 @@ import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { getAll, getOne, run, orgPath } from '../db.js';
+import { getAll, getOne, run, orgPath, db } from '../db.js';
 import { generateId } from '../utils/uuid.js';
 import { encrypt } from '../utils/crypto.js';
 import { isRemoteConnected, getRemoteDevice } from '../services/remote-agents.js';
@@ -10,6 +10,9 @@ import { registry } from '../backends/index.js';
 import { buildUpdate } from '../utils/update-builder.js';
 import { checkSecretDeletable } from '../services/secret-refs.js';
 import { requireAgentInOrg } from '../utils/route-guards.js';
+import { createAgent } from '../services/agent-creation.js';
+import { upsertSecret } from '../utils/secret-upsert.js';
+import { sendError } from '../utils/response.js';
 
 const router = Router();
 
@@ -38,55 +41,34 @@ router.post('/', (req, res) => {
   const { name, role, emoji, allowed_tools, model, backend, security_tier, notify_email } = req.body;
 
   if (!name || !name.trim()) {
-    return res.status(400).json({ error: 'Name is required' });
+    return sendError(res, 400, 'Name is required');
   }
 
   // Check unique name within org
   const existing = getOne('SELECT id FROM agents WHERE name = ? AND org_id = ?', [name.trim(), req.orgId]);
   if (existing) {
-    return res.status(400).json({ error: 'Agent name already exists' });
+    return sendError(res, 400, 'Agent name already exists');
   }
 
   const id = generateId();
-  const sessionId = generateId();
 
-  run(
-    `INSERT INTO agents (id, org_id, name, role, emoji, session_id, allowed_tools, model, backend, security_tier, notify_email)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      id,
-      req.orgId,
-      name.trim(),
-      role || '',
-      emoji || '🤖',
-      sessionId,
-      allowed_tools || 'Read,Grep,Glob,WebFetch,Bash',
-      model || 'claude-sonnet-4-6',
-      backend || registry.getDefault(req.orgId)?.cliId || '',
-      security_tier || 'standard',
-      notify_email !== undefined ? (notify_email ? 1 : 0) : 1,
-    ]
-  );
-
-  // Create agent directory (no boilerplate files — agent creates them during initialization)
-  const agentDir = orgPath(req.orgId, 'agents', id);
-  fs.mkdirSync(agentDir, { recursive: true });
-  fs.mkdirSync(path.join(agentDir, 'workspace'), { recursive: true });
-
-  // Create initial conversation with a static welcome message
-  const convId = generateId();
-  run(
-    `INSERT INTO conversations (id, agent_id, title, session_id, session_initialized)
-     VALUES (?, ?, 'General', ?, 0)`,
-    [convId, id, sessionId]
-  );
-  const welcomeMsgId = generateId();
-  run(
-    `INSERT INTO messages (id, agent_id, conversation_id, role, content, message_type, is_read, created_at)
-     VALUES (?, ?, ?, 'system', ?, 'system', 1, datetime('now'))`,
-    [welcomeMsgId, id, convId,
-     `Welcome! This agent needs some initial setup before it can work effectively.\n\nPlease provide:\n1. **Role** — What is this agent's primary responsibility? (set in agent settings)\n2. **Access** — What tools, APIs, or repos will it need?\n3. **Context** — Any domain knowledge or guidelines it should follow?\n\nOnce you share this, the agent will set up its working environment — guidelines, org profile, and memory.`]
-  );
+  try {
+    db.transaction(() => {
+      createAgent(req.orgId, {
+        id,
+        name: name.trim(),
+        role: role || '',
+        emoji: emoji || '🤖',
+        allowed_tools: allowed_tools || 'Read,Grep,Glob,WebFetch,Bash',
+        model: model || 'claude-sonnet-4-6',
+        backend: backend || registry.getDefault(req.orgId)?.cliId || '',
+        security_tier: security_tier || 'standard',
+        notify_email: notify_email !== undefined ? (notify_email ? 1 : 0) : 1,
+      });
+    })();
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to create agent' });
+  }
 
   const agent = getOne('SELECT * FROM agents WHERE id = ?', [id]);
   res.status(201).json(agent);
@@ -100,7 +82,7 @@ router.get('/:id', (req, res) => {
      FROM agents a WHERE a.id = ? AND a.org_id = ?`,
     [req.params.id, req.orgId]
   );
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  if (!agent) return sendError(res, 404, 'Agent not found');
 
   // Read agent's CLAUDE.md
   const claudeMdPath = orgPath(req.orgId, 'agents', agent.id, 'CLAUDE.md');
@@ -110,7 +92,7 @@ router.get('/:id', (req, res) => {
   agent.has_remote_token = !!agent.remote_token;
   agent.remote_connected = agent.execution_mode === 'remote' ? isRemoteConnected(agent.id) : null;
   if (agent.execution_mode === 'remote') {
-    agent.remote_device_info = getRemoteDevice(agent.id) || (agent.remote_device ? JSON.parse(agent.remote_device) : null);
+    agent.remote_device_info = getRemoteDevice(agent.id) || (() => { try { return agent.remote_device ? JSON.parse(agent.remote_device) : null; } catch { return null; } })();
   }
   delete agent.remote_token;
   delete agent.remote_device;
@@ -126,7 +108,7 @@ router.put('/:id', requireAgentInOrg(), (req, res) => {
   if (req.body.name) {
     const conflict = getOne('SELECT id FROM agents WHERE name = ? AND org_id = ? AND id != ?', [req.body.name, req.orgId, req.params.id]);
     if (conflict) {
-      return res.status(400).json({ error: 'Agent name already exists' });
+      return sendError(res, 400, 'Agent name already exists');
     }
   }
 
@@ -169,7 +151,7 @@ router.delete('/:id', requireAgentInOrg(), (req, res) => {
   );
   if (projectRefs.length > 0) {
     const names = projectRefs.map(r => `${r.name} (${r.role})`).join(', ');
-    return res.status(400).json({ error: `Agent is assigned to projects: ${names}. Remove from projects first.` });
+    return sendError(res, 400, `Agent is assigned to projects: ${names}. Remove from projects first.`);
   }
 
   run('DELETE FROM agents WHERE id = ?', [req.params.id]);
@@ -199,7 +181,7 @@ router.post('/:id/reset-session', requireAgentInOrg(), (req, res) => {
     conversation = getOne('SELECT * FROM conversations WHERE agent_id = ? ORDER BY created_at DESC LIMIT 1', [agent.id]);
   }
 
-  if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+  if (!conversation) return sendError(res, 404, 'Conversation not found');
 
   const newSessionId = generateId();
   run(
@@ -221,7 +203,7 @@ router.put('/:id/compact', requireAgentInOrg(), (req, res) => {
 
   const { summary } = req.body;
   if (!summary || typeof summary !== 'string' || !summary.trim()) {
-    return res.status(400).json({ error: 'summary is required' });
+    return sendError(res, 400, 'summary is required');
   }
 
   // Find the agent's main conversation (not project-scoped)
@@ -229,7 +211,7 @@ router.put('/:id/compact', requireAgentInOrg(), (req, res) => {
     'SELECT id FROM conversations WHERE agent_id = ? AND project_id IS NULL ORDER BY created_at DESC LIMIT 1',
     [agent.id]
   );
-  if (!conversation) return res.status(404).json({ error: 'No conversation found' });
+  if (!conversation) return sendError(res, 404, 'No conversation found');
 
   run(
     "UPDATE conversations SET compact_context = ?, updated_at = datetime('now') WHERE id = ?",
@@ -266,30 +248,10 @@ router.get('/:id/secrets', requireAgentInOrg(), (req, res) => {
 // POST /api/agents/:id/secrets — create or update an agent secret
 router.post('/:id/secrets', requireAgentInOrg(), (req, res) => {
   const { key, value } = req.body;
-  if (!key || !key.trim()) return res.status(400).json({ error: 'Key is required' });
-  if (!value || !value.trim()) return res.status(400).json({ error: 'Value is required' });
+  if (!key || !key.trim()) return sendError(res, 400, 'Key is required');
+  if (!value || !value.trim()) return sendError(res, 400, 'Value is required');
 
-  const cleanKey = key.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-  const encryptedValue = encrypt(value.trim());
-
-  const existing = getOne(
-    'SELECT id FROM agent_secrets WHERE agent_id = ? AND key = ?',
-    [req.params.id, cleanKey]
-  );
-
-  if (existing) {
-    run(
-      "UPDATE agent_secrets SET value = ?, updated_at = datetime('now') WHERE id = ?",
-      [encryptedValue, existing.id]
-    );
-  } else {
-    const id = generateId();
-    run(
-      'INSERT INTO agent_secrets (id, agent_id, key, value) VALUES (?, ?, ?, ?)',
-      [id, req.params.id, cleanKey, encryptedValue]
-    );
-  }
-
+  const cleanKey = upsertSecret('agent_secrets', 'agent_id', req.params.id, key, value);
   res.json({ ok: true, key: cleanKey });
 });
 
@@ -301,13 +263,13 @@ router.delete('/:id/secrets/:secretId', requireAgentInOrg(), (req, res) => {
     'SELECT id, key FROM agent_secrets WHERE id = ? AND agent_id = ?',
     [req.params.secretId, req.params.id]
   );
-  if (!secret) return res.status(404).json({ error: 'Secret not found' });
+  if (!secret) return sendError(res, 404, 'Secret not found');
 
   // Guard: can't delete a secret referenced by enabled agent skills/MCP
   const { deletable, references } = checkSecretDeletable(agent.org_id, secret.key, 'agent', agent.id);
   if (!deletable) {
     const names = references.map(r => `${r.name} (${r.type})`).join(', ');
-    return res.status(400).json({ error: `Secret is referenced by: ${names}. Disable them first.` });
+    return sendError(res, 400, `Secret is referenced by: ${names}. Disable them first.`);
   }
 
   run('DELETE FROM agent_secrets WHERE id = ?', [req.params.secretId]);
@@ -332,19 +294,32 @@ router.get('/:id/vault', requireAgentInOrg(), (req, res) => {
 router.post('/:id/vault', requireAgentInOrg(), (req, res) => {
   const filename = req.headers['x-filename'];
   if (!filename || filename.includes('..') || filename.includes('/')) {
-    return res.status(400).json({ error: 'Invalid or missing X-Filename header' });
+    return sendError(res, 400, 'Invalid or missing X-Filename header');
   }
 
   const vaultDir = orgPath(req.orgId, 'agents', req.params.id, 'vault');
   fs.mkdirSync(vaultDir, { recursive: true });
 
+  const contentLength = parseInt(req.headers['content-length'], 10);
+  if (contentLength > 50 * 1024 * 1024) {
+    return sendError(res, 413, 'File too large (max 50MB)');
+  }
+
   const chunks = [];
-  req.on('data', chunk => chunks.push(chunk));
-  req.on('end', () => {
-    const buffer = Buffer.concat(chunks);
-    if (buffer.length > 50 * 1024 * 1024) {
-      return res.status(413).json({ error: 'File too large (max 50MB)' });
+  let receivedBytes = 0;
+  const MAX_VAULT_SIZE = 50 * 1024 * 1024;
+  req.on('data', chunk => {
+    receivedBytes += chunk.length;
+    if (receivedBytes > MAX_VAULT_SIZE) {
+      if (!res.headersSent) sendError(res, 413, 'File too large (max 50MB)');
+      req.destroy();
+      return;
     }
+    chunks.push(chunk);
+  });
+  req.on('end', () => {
+    if (res.headersSent) return;
+    const buffer = Buffer.concat(chunks);
     fs.writeFileSync(path.join(vaultDir, filename), buffer);
     const stat = fs.statSync(path.join(vaultDir, filename));
     res.status(201).json({ name: filename, size: stat.size, modified: stat.mtime.toISOString() });
@@ -355,11 +330,11 @@ router.post('/:id/vault', requireAgentInOrg(), (req, res) => {
 router.get('/:id/vault/:filename', requireAgentInOrg(), (req, res) => {
   const { id, filename } = req.params;
   if (filename.includes('..') || filename.includes('/')) {
-    return res.status(400).json({ error: 'Invalid filename' });
+    return sendError(res, 400, 'Invalid filename');
   }
 
   const filePath = orgPath(req.orgId, 'agents', id, 'vault', filename);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+  if (!fs.existsSync(filePath)) return sendError(res, 404, 'File not found');
 
   res.download(filePath);
 });
@@ -368,11 +343,11 @@ router.get('/:id/vault/:filename', requireAgentInOrg(), (req, res) => {
 router.delete('/:id/vault/:filename', requireAgentInOrg(), (req, res) => {
   const { id, filename } = req.params;
   if (filename.includes('..') || filename.includes('/')) {
-    return res.status(400).json({ error: 'Invalid filename' });
+    return sendError(res, 400, 'Invalid filename');
   }
 
   const filePath = orgPath(req.orgId, 'agents', id, 'vault', filename);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+  if (!fs.existsSync(filePath)) return sendError(res, 404, 'File not found');
 
   fs.unlinkSync(filePath);
   res.json({ ok: true });
@@ -388,7 +363,7 @@ router.post('/:id/uploads', requireAgentInOrg(), (req, res) => {
   const originalName = req.headers['x-filename'] || 'image.png';
   const ext = originalName.split('.').pop()?.toLowerCase() || 'png';
   if (!ALLOWED_IMAGE_EXTS.has(ext)) {
-    return res.status(400).json({ error: `Unsupported image type: .${ext}` });
+    return sendError(res, 400, `Unsupported image type: .${ext}`);
   }
 
   const id = crypto.randomUUID();
@@ -397,12 +372,19 @@ router.post('/:id/uploads', requireAgentInOrg(), (req, res) => {
   fs.mkdirSync(uploadsDir, { recursive: true });
 
   const chunks = [];
-  req.on('data', chunk => chunks.push(chunk));
-  req.on('end', () => {
-    const buffer = Buffer.concat(chunks);
-    if (buffer.length > MAX_IMAGE_SIZE) {
-      return res.status(413).json({ error: 'Image too large (max 10MB)' });
+  let receivedBytes = 0;
+  req.on('data', chunk => {
+    receivedBytes += chunk.length;
+    if (receivedBytes > MAX_IMAGE_SIZE) {
+      if (!res.headersSent) sendError(res, 413, 'Image too large (max 10MB)');
+      req.destroy();
+      return;
     }
+    chunks.push(chunk);
+  });
+  req.on('end', () => {
+    if (res.headersSent) return;
+    const buffer = Buffer.concat(chunks);
     fs.writeFileSync(path.join(uploadsDir, filename), buffer);
     res.status(201).json({ id, filename, original_name: originalName });
   });
@@ -412,11 +394,11 @@ router.post('/:id/uploads', requireAgentInOrg(), (req, res) => {
 router.get('/:id/uploads/:filename', requireAgentInOrg(), (req, res) => {
   const { id, filename } = req.params;
   if (filename.includes('..') || filename.includes('/')) {
-    return res.status(400).json({ error: 'Invalid filename' });
+    return sendError(res, 400, 'Invalid filename');
   }
 
   const filePath = orgPath(req.orgId, 'agents', id, 'uploads', filename);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Image not found' });
+  if (!fs.existsSync(filePath)) return sendError(res, 404, 'Image not found');
 
   const ext = filename.split('.').pop()?.toLowerCase();
   const mimeTypes = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };

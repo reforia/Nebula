@@ -4,6 +4,7 @@ import { getOne, getAll, run, initOrgDirectories, seedDefaultOrgSettings, db } f
 import { generateId } from '../utils/uuid.js';
 import { generateAccessToken, generateRefreshToken, verifyAccessToken, verifyRefreshToken, setTokenCookies, clearTokenCookies } from '../utils/jwt.js';
 import { extractAndSaveLicenseFromUserinfo, getLicenseStatus } from '../services/license.js';
+import { sendError, catchError } from '../utils/response.js';
 
 const AUTH_PROVIDER = process.env.AUTH_PROVIDER || 'local';
 const router = Router();
@@ -77,8 +78,7 @@ if (AUTH_PROVIDER === 'enigma') {
 
       res.json({ url, platformUrl: PLATFORM_URL });
     } catch (err) {
-      console.error('[auth] Failed to generate login URL:', err);
-      res.status(503).json({ error: err.message || 'Failed to generate login URL' });
+      catchError(res, 503, 'Failed to generate login URL', err);
     }
   });
 

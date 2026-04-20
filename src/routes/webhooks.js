@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { getOne, getOrgSetting } from '../db.js';
+import { sendError } from '../utils/response.js';
 import { executeTask } from '../services/task-executor.js';
 
 const router = Router();
@@ -9,9 +10,9 @@ const router = Router();
 // Public endpoint — no session auth. Verified via webhook_secret.
 router.post('/:taskId', async (req, res) => {
   const task = getOne('SELECT * FROM tasks WHERE id = ?', [req.params.taskId]);
-  if (!task) return res.status(404).json({ error: 'Task not found' });
-  if (!task.enabled) return res.status(400).json({ error: 'Task is disabled' });
-  if (task.trigger_type !== 'webhook') return res.status(400).json({ error: 'Task is not a webhook trigger' });
+  if (!task) return sendError(res, 404, 'Task not found');
+  if (!task.enabled) return sendError(res, 400, 'Task is disabled');
+  if (task.trigger_type !== 'webhook') return sendError(res, 400, 'Task is not a webhook trigger');
 
   // Verify secret if set
   if (task.webhook_secret) {
@@ -26,19 +27,19 @@ router.post('/:taskId', async (req, res) => {
         const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body));
         const expected = crypto.createHmac('sha256', task.webhook_secret).update(rawBody).digest('hex');
         if (signature !== expected) {
-          return res.status(401).json({ error: 'Invalid signature' });
+          return sendError(res, 401, 'Invalid signature');
         }
       } else {
-        return res.status(401).json({ error: 'Missing or invalid secret' });
+        return sendError(res, 401, 'Missing or invalid secret');
       }
     }
   }
 
   const agent = getOne('SELECT * FROM agents WHERE id = ?', [task.agent_id]);
-  if (!agent || !agent.enabled) return res.status(400).json({ error: 'Agent is disabled' });
+  if (!agent || !agent.enabled) return sendError(res, 400, 'Agent is disabled');
 
   if (getOrgSetting(agent.org_id, 'cron_enabled') === '0') {
-    return res.status(503).json({ error: 'Task execution is paused for this organization' });
+    return sendError(res, 503, 'Task execution is paused for this organization');
   }
 
   // Build prompt with webhook payload

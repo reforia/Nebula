@@ -2,8 +2,6 @@ import nodemailer from 'nodemailer';
 import { marked } from 'marked';
 import { getOrgSetting } from '../db.js';
 
-let transporters = new Map(); // orgId -> transporter
-
 function getTransporter(orgId) {
   const host = getOrgSetting(orgId, 'smtp_host');
   const port = parseInt(getOrgSetting(orgId, 'smtp_port') || '587', 10);
@@ -12,7 +10,6 @@ function getTransporter(orgId) {
 
   if (!host || !user || !pass) return null;
 
-  // Create fresh transporter each time since settings may change
   return nodemailer.createTransport({
     host,
     port,
@@ -21,9 +18,7 @@ function getTransporter(orgId) {
   });
 }
 
-export function resetTransporter() {
-  transporters.clear();
-}
+export function resetTransporter() {}
 
 export async function sendNotification(orgId, subject, body) {
   if (getOrgSetting(orgId, 'notifications_enabled') !== '1') return;

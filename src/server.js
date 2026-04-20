@@ -16,6 +16,7 @@ import { initBackupScheduler } from './services/backup.js';
 import executor from './services/executor.js';
 import { registry } from './backends/index.js';
 import { broadcastToOrg } from './services/websocket.js';
+import { rateLimit } from './utils/rate-limit.js';
 
 import authRouter, { jwtMiddleware, requireAuth } from './routes/auth.js';
 import agentsRouter from './routes/agents.js';
@@ -52,10 +53,19 @@ app.use((req, res, next) => {
   express.json({ limit: '1mb', verify })(req, res, next);
 });
 app.use(cookieParser());
+
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '0');
+  res.removeHeader('X-Powered-By');
+  next();
+});
+
 app.use(jwtMiddleware);
 
 // Public routes (no auth required)
-app.use('/api/auth', authRouter);
+app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 20 }), authRouter);
 app.use('/api/setup', setupRouter);
 app.use('/api/webhooks', webhookRouter);
 app.use('/api/project-webhooks', projectWebhooksRouter);
@@ -123,7 +133,7 @@ import { getAll, run as dbRun } from './db.js';
 (() => {
   // Let each adapter perform startup recovery (e.g. restore config from backups)
   for (const adapter of registry.getAll()) {
-    try { adapter.startupRecover(); } catch {}
+    try { adapter.startupRecover(); } catch (err) { console.warn('[startup] Recovery failed for', adapter.cliId, ':', err.message); }
   }
 
   // Reset sessions whose runtime state no longer exists on disk

@@ -8,6 +8,7 @@ import { broadcastToOrg, broadcastUnreadCounts, hasActiveClients } from '../serv
 import { sendNotification } from '../services/email.js';
 import { redactSecrets } from '../utils/redact.js';
 import { enrichReplyTo } from '../services/message-service.js';
+import { sendError } from '../utils/response.js';
 import { requireAgentInOrg } from '../utils/route-guards.js';
 
 const router = Router();
@@ -28,8 +29,16 @@ function buildConversationContext(conversationId, opts = {}) {
     [conversationId, maxMessages]
   ).reverse();
   if (recent.length === 0) return '';
+
+  const agentIds = [...new Set(recent.filter(m => m.role !== 'user').map(m => m.agent_id))];
+  const agentNames = {};
+  if (agentIds.length > 0) {
+    const rows = getAll(`SELECT id, name FROM agents WHERE id IN (${agentIds.map(() => '?').join(',')})`, agentIds);
+    for (const r of rows) agentNames[r.id] = r.name;
+  }
+
   const lines = recent.map(m => {
-    const author = m.role === 'user' ? 'User' : (getOne('SELECT name FROM agents WHERE id = ?', [m.agent_id])?.name || 'Agent');
+    const author = m.role === 'user' ? 'User' : (agentNames[m.agent_id] || 'Agent');
     const content = maxChars > 0 ? m.content.slice(0, maxChars) : m.content;
     return `[${author}]: ${content}`;
   });
@@ -123,11 +132,12 @@ function processAgentMentions(text, sourceAgentId, conversationId, orgId, notify
       })
       .catch((err) => {
         console.error(`[@notify] Execution failed for "${target.name}":`, err.message);
+        const safeErr = redactSecrets(err.message, orgId, target.id);
         const errMsgId = generateId();
         run(
           `INSERT INTO messages (id, agent_id, conversation_id, role, content, message_type, is_read, created_at)
            VALUES (?, ?, ?, 'assistant', ?, 'error', 0, datetime('now'))`,
-          [errMsgId, target.id, targetConv.id, `@notify failed: ${err.message}`]
+          [errMsgId, target.id, targetConv.id, `@notify failed: ${safeErr}`]
         );
         const errMsg = getOne('SELECT * FROM messages WHERE id = ?', [errMsgId]);
         broadcastToOrg(orgId, { type: 'new_message', agent_id: target.id, message: errMsg });
@@ -146,7 +156,13 @@ function processAgentMentions(text, sourceAgentId, conversationId, orgId, notify
     .filter(name => !notifies.includes(name)); // skip names already handled by @notify
 
   const sourceAgent = getOne('SELECT name, emoji FROM agents WHERE id = ?', [sourceAgentId]);
-  const uniqueMentions = [...new Set(mentions)];
+  let uniqueMentions = [...new Set(mentions)];
+
+  const MAX_MENTIONS = 3;
+  if (uniqueMentions.length > MAX_MENTIONS) {
+    console.warn(`[mentions] Capping ${uniqueMentions.length} mentions to ${MAX_MENTIONS} (from agent ${sourceAgentId})`);
+    uniqueMentions = uniqueMentions.slice(0, MAX_MENTIONS);
+  }
 
   for (const mentionedName of uniqueMentions) {
     const mentioned = getOne(
@@ -193,11 +209,12 @@ function processAgentMentions(text, sourceAgentId, conversationId, orgId, notify
         broadcastUnreadCounts(orgId);
       })
       .catch((err) => {
+        const safeErr = redactSecrets(err.message, orgId, mentioned.id);
         const msgId = generateId();
         run(
           `INSERT INTO messages (id, agent_id, conversation_id, role, content, message_type, is_read, created_at)
            VALUES (?, ?, ?, 'assistant', ?, 'error', 0, datetime('now'))`,
-          [msgId, mentioned.id, conversationId, `Error: ${err.message}`]
+          [msgId, mentioned.id, conversationId, `Error: ${safeErr}`]
         );
         const msg = getOne('SELECT * FROM messages WHERE id = ?', [msgId]);
         const convOwner = getOne('SELECT agent_id FROM conversations WHERE id = ?', [conversationId]);
@@ -308,11 +325,11 @@ router.get('/:id/messages', requireAgentInOrg(), (req, res) => {
 // POST /api/agents/:id/messages — send message
 router.post('/:id/messages', requireAgentInOrg(), async (req, res) => {
   const agent = req.agent;
-  if (!agent.enabled) return res.status(400).json({ error: 'Agent is disabled' });
+  if (!agent.enabled) return sendError(res, 400, 'Agent is disabled');
 
   const { content, conversation_id, from_agent_id, image_ids, reply_to_id } = req.body;
   if ((!content || !content.trim()) && (!image_ids || image_ids.length === 0)) {
-    return res.status(400).json({ error: 'Message content or images required' });
+    return sendError(res, 400, 'Message content or images required');
   }
 
   // Resolve image paths from uploaded IDs
@@ -473,19 +490,21 @@ router.post('/:id/messages', requireAgentInOrg(), async (req, res) => {
         processAgentMentions(safeText, agent.id, displayConversationId, orgId);
       })
       .catch((err) => {
+        const safeErr = redactSecrets(err.message, orgId, agent.id);
         const msgId = generateId();
         run(
           `INSERT INTO messages (id, agent_id, conversation_id, role, content, message_type, is_read, created_at)
            VALUES (?, ?, ?, 'assistant', ?, 'error', 0, datetime('now'))`,
-          [msgId, agent.id, displayConversationId, `Error: ${err.message}`]
+          [msgId, agent.id, displayConversationId, `Error: ${safeErr}`]
         );
         const msg = getOne('SELECT * FROM messages WHERE id = ?', [msgId]);
         broadcastToOrg(orgId, { type: 'new_message', agent_id: agent.id, message: msg });
-        broadcastToOrg(orgId, { type: 'agent_error', agent_id: agent.id, error: err.message });
-        // Surface auth errors as a dedicated event so the UI can show a persistent banner
+        broadcastToOrg(orgId, { type: 'agent_error', agent_id: agent.id, error: safeErr });
+        // Surface auth errors as a dedicated event so the UI can show a persistent banner.
+        // Pattern-match on raw err.message (never leaves the server); broadcast the redacted form.
         if (/auth expired/i.test(err.message)) {
           const runtime = err.message.match(/^(\S+\s+\S+)/)?.[0] || 'CLI runtime';
-          broadcastToOrg(orgId, { type: 'runtime_auth_error', runtime, message: err.message });
+          broadcastToOrg(orgId, { type: 'runtime_auth_error', runtime, message: safeErr });
         }
         broadcastUnreadCounts(orgId);
       });
@@ -528,22 +547,26 @@ router.post('/:id/messages', requireAgentInOrg(), async (req, res) => {
           return `[${mentioned.emoji} ${mentioned.name}]: ${safeText}`;
         })
         .catch((err) => {
+          const safeErr = redactSecrets(err.message, orgId, mentioned.id);
           const msgId = generateId();
           run(
             `INSERT INTO messages (id, agent_id, conversation_id, role, content, message_type, is_read, created_at)
              VALUES (?, ?, ?, 'assistant', ?, 'error', 0, datetime('now'))`,
-            [msgId, mentioned.id, displayConversationId, `Error: ${err.message}`]
+            [msgId, mentioned.id, displayConversationId, `Error: ${safeErr}`]
           );
           const msg = getOne('SELECT * FROM messages WHERE id = ?', [msgId]);
           broadcastToOrg(orgId, { type: 'new_message', agent_id: mentioned.id, message: msg });
           broadcastUnreadCounts(orgId);
-          return `[${mentioned.name}]: (error: ${err.message})`;
+          return `[${mentioned.name}]: (error: ${safeErr})`;
         });
     });
 
     // Wait for all mentioned agents, then execute primary agent with their responses
     Promise.all(mentionPromises).then(responses => {
       executePrimaryAgent(responses.join('\n\n'));
+    }).catch(err => {
+      console.error('[mentions] Primary agent execution failed:', err.message);
+      executePrimaryAgent();
     });
   } else {
     // No mentions — execute primary agent immediately

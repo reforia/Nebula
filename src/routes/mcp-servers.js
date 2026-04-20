@@ -3,6 +3,7 @@ import { getAll, getOne, run } from '../db.js';
 import { generateId } from '../utils/uuid.js';
 import { checkSecretsForEnable } from '../services/secret-refs.js';
 import { requireAgentInOrg } from '../utils/route-guards.js';
+import { sendError } from '../utils/response.js';
 
 const VALID_TRANSPORTS = ['stdio', 'http', 'sse'];
 
@@ -74,16 +75,16 @@ mcpServersRouter.get('/', (req, res) => {
 // POST /api/mcp-servers — create org-wide MCP server
 mcpServersRouter.post('/', (req, res) => {
   const { name, transport, config, enabled } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+  if (!name || !name.trim()) return sendError(res, 400, 'Name is required');
   if (transport && !VALID_TRANSPORTS.includes(transport)) {
-    return res.status(400).json({ error: `Transport must be one of: ${VALID_TRANSPORTS.join(', ')}` });
+    return sendError(res, 400, `Transport must be one of: ${VALID_TRANSPORTS.join(', ')}`);
   }
 
   // Validate config
   const configStr = typeof config === 'object' ? JSON.stringify(config) : (config || '{}');
   const effectiveTransport = transport || 'stdio';
   const { valid, reason } = validateMcpConfig(effectiveTransport, configStr);
-  if (!valid) return res.status(400).json({ error: reason });
+  if (!valid) return sendError(res, 400, reason);
 
   const id = generateId();
   run(
@@ -103,10 +104,10 @@ mcpServersRouter.put('/:id', (req, res) => {
     'SELECT * FROM mcp_servers WHERE id = ? AND org_id = ? AND agent_id IS NULL',
     [req.params.id, req.orgId]
   );
-  if (!server) return res.status(404).json({ error: 'MCP server not found' });
+  if (!server) return sendError(res, 404, 'MCP server not found');
 
   if (req.body.transport && !VALID_TRANSPORTS.includes(req.body.transport)) {
-    return res.status(400).json({ error: `Transport must be one of: ${VALID_TRANSPORTS.join(', ')}` });
+    return sendError(res, 400, `Transport must be one of: ${VALID_TRANSPORTS.join(', ')}`);
   }
 
   // Validate config + transport combination if either is being updated
@@ -114,7 +115,7 @@ mcpServersRouter.put('/:id', (req, res) => {
     const newConfig = req.body.config !== undefined ? (typeof req.body.config === 'object' ? JSON.stringify(req.body.config) : req.body.config) : server.config;
     const newTransport = req.body.transport || server.transport;
     const { valid, reason } = validateMcpConfig(newTransport, newConfig);
-    if (!valid) return res.status(400).json({ error: reason });
+    if (!valid) return sendError(res, 400, reason);
   }
 
   // Guard: check secrets are configured before enabling
@@ -122,7 +123,7 @@ mcpServersRouter.put('/:id', (req, res) => {
     const config = req.body.config !== undefined ? (typeof req.body.config === 'object' ? JSON.stringify(req.body.config) : req.body.config) : server.config;
     const { ok, missing } = checkSecretsForEnable(req.orgId, null, config);
     if (!ok) {
-      return res.status(400).json({ error: `Missing secrets: ${missing.join(', ')}. Configure them in the Secrets tab.` });
+      return sendError(res, 400, `Missing secrets: ${missing.join(', ')}. Configure them in the Secrets tab.`);
     }
   }
 
@@ -158,7 +159,7 @@ mcpServersRouter.delete('/:id', (req, res) => {
     'SELECT * FROM mcp_servers WHERE id = ? AND org_id = ? AND agent_id IS NULL',
     [req.params.id, req.orgId]
   );
-  if (!server) return res.status(404).json({ error: 'MCP server not found' });
+  if (!server) return sendError(res, 404, 'MCP server not found');
 
   run('DELETE FROM mcp_servers WHERE id = ?', [req.params.id]);
   // Deleting an enabled server changes what agents see — reset
@@ -184,15 +185,15 @@ agentMcpServersRouter.get('/:id/mcp-servers', requireAgentInOrg(), (req, res) =>
 // POST /api/agents/:id/mcp-servers — create agent-specific MCP server
 agentMcpServersRouter.post('/:id/mcp-servers', requireAgentInOrg(), (req, res) => {
   const { name, transport, config, enabled } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+  if (!name || !name.trim()) return sendError(res, 400, 'Name is required');
   if (transport && !VALID_TRANSPORTS.includes(transport)) {
-    return res.status(400).json({ error: `Transport must be one of: ${VALID_TRANSPORTS.join(', ')}` });
+    return sendError(res, 400, `Transport must be one of: ${VALID_TRANSPORTS.join(', ')}`);
   }
 
   const configStr = typeof config === 'object' ? JSON.stringify(config) : (config || '{}');
   const effectiveTransport = transport || 'stdio';
   const { valid, reason } = validateMcpConfig(effectiveTransport, configStr);
-  if (!valid) return res.status(400).json({ error: reason });
+  if (!valid) return sendError(res, 400, reason);
 
   const id = generateId();
   run(
@@ -207,15 +208,15 @@ agentMcpServersRouter.post('/:id/mcp-servers', requireAgentInOrg(), (req, res) =
 });
 
 // PUT /api/agents/:id/mcp-servers/:serverId — update agent-specific MCP server
-agentMcpServersRouter.put('/:id/mcp-servers/:serverId', (req, res) => {
+agentMcpServersRouter.put('/:id/mcp-servers/:serverId', requireAgentInOrg(), (req, res) => {
   const server = getOne(
-    'SELECT * FROM mcp_servers WHERE id = ? AND agent_id = ?',
-    [req.params.serverId, req.params.id]
+    'SELECT * FROM mcp_servers WHERE id = ? AND agent_id = ? AND org_id = ?',
+    [req.params.serverId, req.params.id, req.orgId]
   );
-  if (!server) return res.status(404).json({ error: 'MCP server not found' });
+  if (!server) return sendError(res, 404, 'MCP server not found');
 
   if (req.body.transport && !VALID_TRANSPORTS.includes(req.body.transport)) {
-    return res.status(400).json({ error: `Transport must be one of: ${VALID_TRANSPORTS.join(', ')}` });
+    return sendError(res, 400, `Transport must be one of: ${VALID_TRANSPORTS.join(', ')}`);
   }
 
   // Validate config + transport combination if either is being updated
@@ -223,7 +224,7 @@ agentMcpServersRouter.put('/:id/mcp-servers/:serverId', (req, res) => {
     const newConfig = req.body.config !== undefined ? (typeof req.body.config === 'object' ? JSON.stringify(req.body.config) : req.body.config) : server.config;
     const newTransport = req.body.transport || server.transport;
     const { valid, reason } = validateMcpConfig(newTransport, newConfig);
-    if (!valid) return res.status(400).json({ error: reason });
+    if (!valid) return sendError(res, 400, reason);
   }
 
   // Guard: check secrets are configured before enabling
@@ -231,7 +232,7 @@ agentMcpServersRouter.put('/:id/mcp-servers/:serverId', (req, res) => {
     const config = req.body.config !== undefined ? (typeof req.body.config === 'object' ? JSON.stringify(req.body.config) : req.body.config) : server.config;
     const { ok, missing } = checkSecretsForEnable(req.orgId, req.params.id, config);
     if (!ok) {
-      return res.status(400).json({ error: `Missing secrets: ${missing.join(', ')}. Configure them in the Secrets tab.` });
+      return sendError(res, 400, `Missing secrets: ${missing.join(', ')}. Configure them in the Secrets tab.`);
     }
   }
 
@@ -262,12 +263,12 @@ agentMcpServersRouter.put('/:id/mcp-servers/:serverId', (req, res) => {
 });
 
 // DELETE /api/agents/:id/mcp-servers/:serverId — delete agent-specific MCP server
-agentMcpServersRouter.delete('/:id/mcp-servers/:serverId', (req, res) => {
+agentMcpServersRouter.delete('/:id/mcp-servers/:serverId', requireAgentInOrg(), (req, res) => {
   const server = getOne(
-    'SELECT * FROM mcp_servers WHERE id = ? AND agent_id = ?',
-    [req.params.serverId, req.params.id]
+    'SELECT * FROM mcp_servers WHERE id = ? AND agent_id = ? AND org_id = ?',
+    [req.params.serverId, req.params.id, req.orgId]
   );
-  if (!server) return res.status(404).json({ error: 'MCP server not found' });
+  if (!server) return sendError(res, 404, 'MCP server not found');
 
   run('DELETE FROM mcp_servers WHERE id = ?', [req.params.serverId]);
   if (server.enabled) resetSessionsForMcpChange(req.orgId, req.params.id);

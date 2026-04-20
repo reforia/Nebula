@@ -48,9 +48,11 @@ export class NebulaAgentClient {
 
     console.log(`[client] Connecting to ${url}...`);
 
-    this.ws = new WebSocket(url, {
-      rejectUnauthorized: false,
-    });
+    const wsOptions = {};
+    if (process.env.NEBULA_AGENT_INSECURE === '1') {
+      wsOptions.rejectUnauthorized = false;
+    }
+    this.ws = new WebSocket(url, wsOptions);
 
     this.ws.on('open', () => {
       console.log('[client] Connected, authenticating...');

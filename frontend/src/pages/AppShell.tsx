@@ -12,6 +12,7 @@ import GlobalSettings from '../components/GlobalSettings';
 import TaskCalendar from '../components/TaskCalendar';
 import ProjectWizard from '../components/ProjectWizard';
 import ProjectView from '../components/ProjectView';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 export default function AppShell({ onLogout }: { onLogout: () => void }) {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -27,6 +28,7 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
   const [showCalendar, setShowCalendar] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [authError, setAuthError] = useState<string | null>(null);
+  const [pendingConversationId, setPendingConversationId] = useState<string | null>(null);
 
   const { connected, subscribe, send } = useWebSocket();
   const { agents, loading: agentsLoading, refresh: refreshAgents, updateUnreadCounts, updateLastMessage } = useAgents();
@@ -48,14 +50,28 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
     }
   }, []);
 
+  const clearConversationUnread = useCallback((convId: string) => {
+    setConversations(prev => prev.map(c =>
+      c.id === convId ? { ...c, unread_count: 0 } : c
+    ));
+  }, []);
+
   // When agent changes: load conversations, select the most recent, load its messages
   useEffect(() => {
     if (selectedAgentId) {
       clear();
       setSelectedConversationId(null);
       loadConversations(selectedAgentId).then((convs) => {
-        if (convs.length > 0) {
-          const latest = convs[0]; // sorted by created_at DESC
+        if (pendingConversationId && convs.some(c => c.id === pendingConversationId)) {
+          setSelectedConversationId(pendingConversationId);
+          loadMessages(selectedAgentId, pendingConversationId);
+          markRead(selectedAgentId, pendingConversationId).catch(() => {});
+          clearConversationUnread(pendingConversationId);
+          send({ type: 'mark_read', agent_id: selectedAgentId });
+          setPendingConversationId(null);
+        } else if (convs.length > 0) {
+          setPendingConversationId(null);
+          const latest = convs[0];
           setSelectedConversationId(latest.id);
           loadMessages(selectedAgentId, latest.id);
           markRead(selectedAgentId, latest.id).catch(() => {});
@@ -66,8 +82,9 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
     } else {
       setConversations([]);
       setSelectedConversationId(null);
+      setPendingConversationId(null);
     }
-  }, [selectedAgentId, loadConversations, loadMessages, clear, send]);
+  }, [selectedAgentId, loadConversations, loadMessages, clear, send, pendingConversationId, clearConversationUnread]);
 
   // When conversation changes (within same agent): load messages
   const handleSelectConversation = useCallback((convId: string) => {
@@ -92,12 +109,6 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
       console.error('Failed to create conversation:', err);
     }
   }, [selectedAgentId, clear]);
-
-  const clearConversationUnread = useCallback((convId: string) => {
-    setConversations(prev => prev.map(c =>
-      c.id === convId ? { ...c, unread_count: 0 } : c
-    ));
-  }, []);
 
   const refreshConversations = useCallback(() => {
     if (selectedAgentId) loadConversations(selectedAgentId);
@@ -197,25 +208,17 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
       setShowCalendar(false);
       setSelectedProjectId(null);
       if (agentId === selectedAgentId && conversationId && conversationId !== selectedConversationId) {
-        // Same agent, different conversation
         clear();
         setSelectedConversationId(conversationId);
         loadMessages(agentId, conversationId);
         if (messageId) setScrollToMessageId(messageId);
       } else if (agentId !== selectedAgentId) {
-        // Different agent — set agent, then once conversations load, select the right one
         setSelectedAgentId(agentId);
         if (conversationId) {
-          // Override the auto-select in the agent change effect
-          setTimeout(() => {
-            setSelectedConversationId(conversationId);
-            clear();
-            loadMessages(agentId, conversationId);
-            if (messageId) setScrollToMessageId(messageId);
-          }, 100);
+          setPendingConversationId(conversationId);
+          if (messageId) setScrollToMessageId(messageId);
         }
       } else {
-        // Same agent, same conversation — just scroll
         if (messageId) setScrollToMessageId(messageId);
       }
     }
@@ -227,6 +230,7 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
   };
 
   return (
+    <ErrorBoundary>
     <div className="flex h-[100dvh] bg-nebula-bg overflow-hidden">
       <Sidebar
         agents={agents}
@@ -338,5 +342,6 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
         />
       )}
     </div>
+    </ErrorBoundary>
   );
 }

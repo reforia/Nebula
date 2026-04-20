@@ -222,19 +222,17 @@ async fn connect_and_run(
                                     app.emit("agent-state", &s.state).ok();
                                 }
 
-                                // Set up per-execution cancel token
                                 let exec_token = tokio_util::sync::CancellationToken::new();
                                 {
                                     let mut s = state.lock().await;
-                                    s.cancel_token = Some(exec_token.clone());
+                                    s.exec_cancel_token = Some(exec_token.clone());
                                 }
 
                                 let result = spawn_runtime(&params, app).await;
 
-                                // Clear cancel token
                                 {
                                     let mut s = state.lock().await;
-                                    s.cancel_token = None;
+                                    s.exec_cancel_token = None;
                                 }
 
                                 let response = match result {
@@ -255,7 +253,7 @@ async fn connect_and_run(
                             "cancel" => {
                                 let token = {
                                     let s = state.lock().await;
-                                    s.cancel_token.clone()
+                                    s.exec_cancel_token.clone()
                                 };
                                 if let Some(t) = token {
                                     app.emit("agent-log", "Cancelling execution...").ok();

@@ -102,12 +102,13 @@ export async function executeTask(task, agent, prompt, opts = {}) {
     }
   } catch (err) {
     console.error(`[${source}] Task "${task.name}" for agent "${agent.name}" failed:`, err.message);
+    const safeErr = redactSecrets(err.message, orgId, agent.id);
 
     const errorConvId = conversationId || resolveConversation(agent.id, task.project_id).conversationId;
     if (errorConvId) {
       insertMessage({
         agentId: agent.id, conversationId: errorConvId, role: 'assistant',
-        content: `Task failed: ${err.message}`, orgId,
+        content: `Task failed: ${safeErr}`, orgId,
         messageType: 'error', taskName: task.name,
         broadcastExtra,
       });
@@ -115,6 +116,6 @@ export async function executeTask(task, agent, prompt, opts = {}) {
 
     run("UPDATE tasks SET last_run_at = datetime('now'), last_status = 'error' WHERE id = ?", [task.id]);
 
-    broadcastToOrg(orgId, { type: 'agent_error', agent_id: agent.id, error: err.message });
+    broadcastToOrg(orgId, { type: 'agent_error', agent_id: agent.id, error: safeErr });
   }
 }

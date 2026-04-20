@@ -56,6 +56,7 @@ pub struct AppState {
     pub config: AgentConfig,
     pub state: AgentState,
     pub cancel_token: Option<tokio_util::sync::CancellationToken>,
+    pub exec_cancel_token: Option<tokio_util::sync::CancellationToken>,
 }
 
 fn config_path() -> PathBuf {
@@ -298,6 +299,7 @@ pub fn run() {
         config,
         state: initial_state,
         cancel_token: None,
+        exec_cancel_token: None,
     }));
 
     tauri::Builder::default()

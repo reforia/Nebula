@@ -104,7 +104,7 @@ export function hasActiveClients(orgId) {
   return false;
 }
 
-function sendUnreadCounts(ws, orgId) {
+function getUnreadCounts(orgId) {
   const rows = getAll(
     `SELECT m.agent_id, COUNT(*) as count
      FROM messages m
@@ -129,42 +129,16 @@ function sendUnreadCounts(ws, orgId) {
   const projectCounts = {};
   for (const row of projectRows) projectCounts[row.project_id] = row.count;
 
+  return { counts, projectCounts };
+}
+
+function sendUnreadCounts(ws, orgId) {
+  const { counts, projectCounts } = getUnreadCounts(orgId);
   ws.send(JSON.stringify({ type: 'unread_update', counts, projectCounts }));
 }
 
 export function broadcastUnreadCounts(orgId) {
-  // Get unread counts for agents in this org.
-  // Only count messages in the agent's OWN conversations — @mention responses
-  // stored in other agents' conversations should not show as unread for the responder.
-  const rows = getAll(
-    `SELECT m.agent_id, COUNT(*) as count
-     FROM messages m
-     JOIN agents a ON m.agent_id = a.id
-     JOIN conversations c ON m.conversation_id = c.id AND c.agent_id = m.agent_id
-     WHERE m.is_read = 0 AND m.role = 'assistant' AND a.org_id = ? AND c.project_id IS NULL
-     GROUP BY m.agent_id`,
-    [orgId]
-  );
-  const counts = {};
-  for (const row of rows) {
-    counts[row.agent_id] = row.count;
-  }
-
-  // Get unread counts for projects in this org
-  const projectRows = getAll(
-    `SELECT c.project_id, COUNT(*) as count
-     FROM messages m
-     JOIN conversations c ON m.conversation_id = c.id
-     JOIN projects p ON c.project_id = p.id
-     WHERE m.is_read = 0 AND m.role = 'assistant' AND p.org_id = ? AND c.project_id IS NOT NULL
-     GROUP BY c.project_id`,
-    [orgId]
-  );
-  const projectCounts = {};
-  for (const row of projectRows) {
-    projectCounts[row.project_id] = row.count;
-  }
-
+  const { counts, projectCounts } = getUnreadCounts(orgId);
   broadcastToOrg(orgId, { type: 'unread_update', counts, projectCounts });
 }
 
