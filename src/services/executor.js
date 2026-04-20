@@ -260,6 +260,12 @@ class AgentExecutor extends EventEmitter {
    * Side effect: ensures the directory exists on disk.
    */
   _resolveAgentDir(agentId, agentOrgId, options) {
+    // Defense-in-depth: reject any branch name that could escape the
+    // org's sandbox when interpolated into a filesystem path. Routes
+    // validate on write, but old DB rows or new callers might not.
+    if (options.branchName) {
+      git.validateBranchName(options.branchName);
+    }
     let agentDir;
     if (options.projectId && options.branchName) {
       agentDir = orgPath(agentOrgId, 'agents', agentId, 'projects', options.projectId, options.branchName);

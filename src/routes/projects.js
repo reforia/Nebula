@@ -60,18 +60,51 @@ router.post('/list-repos', async (req, res) => {
 // ==================== Projects ====================
 
 // GET /api/projects — list org projects
+//
+// Aggregates are pre-computed once per table via CTEs and LEFT-JOIN'd into
+// the project row set. Avoids 6N correlated subqueries when listing many
+// projects.
 router.get('/', (req, res) => {
   const projects = getAll(`
+    WITH ms_counts AS (
+      SELECT project_id,
+             COUNT(*) AS milestone_count,
+             SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS milestones_done
+      FROM project_milestones GROUP BY project_id
+    ),
+    del_counts AS (
+      SELECT m.project_id,
+             COUNT(*) AS deliverable_count,
+             SUM(CASE WHEN d.status = 'done' THEN 1 ELSE 0 END) AS deliverables_done
+      FROM project_deliverables d
+      JOIN project_milestones m ON d.milestone_id = m.id
+      GROUP BY m.project_id
+    ),
+    agent_counts AS (
+      SELECT project_id, COUNT(*) AS agent_count
+      FROM project_agents GROUP BY project_id
+    ),
+    unread_counts AS (
+      SELECT conv.project_id, COUNT(*) AS unread_count
+      FROM messages msg
+      JOIN conversations conv ON msg.conversation_id = conv.id
+      WHERE msg.is_read = 0 AND msg.role = 'assistant' AND conv.project_id IS NOT NULL
+      GROUP BY conv.project_id
+    )
     SELECT p.*,
-      a.name as coordinator_name, a.emoji as coordinator_emoji,
-      (SELECT COUNT(*) FROM project_milestones m WHERE m.project_id = p.id) as milestone_count,
-      (SELECT COUNT(*) FROM project_milestones m WHERE m.project_id = p.id AND m.status = 'done') as milestones_done,
-      (SELECT COUNT(*) FROM project_agents pa WHERE pa.project_id = p.id) as agent_count,
-      (SELECT COUNT(*) FROM project_deliverables d JOIN project_milestones m2 ON d.milestone_id = m2.id WHERE m2.project_id = p.id) as deliverable_count,
-      (SELECT COUNT(*) FROM project_deliverables d2 JOIN project_milestones m3 ON d2.milestone_id = m3.id WHERE m3.project_id = p.id AND d2.status = 'done') as deliverables_done,
-      (SELECT COUNT(*) FROM messages msg JOIN conversations conv ON msg.conversation_id = conv.id WHERE conv.project_id = p.id AND msg.is_read = 0 AND msg.role = 'assistant') as unread_count
+           a.name AS coordinator_name, a.emoji AS coordinator_emoji,
+           COALESCE(ms.milestone_count, 0)   AS milestone_count,
+           COALESCE(ms.milestones_done, 0)   AS milestones_done,
+           COALESCE(ac.agent_count, 0)       AS agent_count,
+           COALESCE(dc.deliverable_count, 0) AS deliverable_count,
+           COALESCE(dc.deliverables_done, 0) AS deliverables_done,
+           COALESCE(uc.unread_count, 0)      AS unread_count
     FROM projects p
-    LEFT JOIN agents a ON p.coordinator_agent_id = a.id
+    LEFT JOIN agents        a  ON p.coordinator_agent_id = a.id
+    LEFT JOIN ms_counts     ms ON ms.project_id = p.id
+    LEFT JOIN del_counts    dc ON dc.project_id = p.id
+    LEFT JOIN agent_counts  ac ON ac.project_id = p.id
+    LEFT JOIN unread_counts uc ON uc.project_id = p.id
     WHERE p.org_id = ?
     ORDER BY p.created_at DESC
   `, [req.orgId]);
@@ -151,6 +184,10 @@ router.post('/', async (req, res) => {
         for (let di = 0; di < ms.deliverables.length; di++) {
           const del = ms.deliverables[di];
           if (!del.name) continue;
+          if (del.branch_name) {
+            try { git.validateBranchName(del.branch_name); }
+            catch (e) { return sendError(res, 400, e.message); }
+          }
           run(
             'INSERT INTO project_deliverables (id, milestone_id, name, pass_criteria, branch_name, assigned_agent_id, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
             [generateId(), msId, del.name.trim(), del.pass_criteria || '', del.branch_name || null, del.assigned_agent_id || null, di]
@@ -483,6 +520,11 @@ router.post('/milestones/:id/deliverables', (req, res) => {
   const { name, pass_criteria, branch_name, assigned_agent_id, sort_order } = req.body;
   if (!name || !name.trim()) return sendError(res, 400, 'Name is required');
 
+  if (branch_name) {
+    try { git.validateBranchName(branch_name); }
+    catch (e) { return sendError(res, 400, e.message); }
+  }
+
   if (assigned_agent_id) {
     const agent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [assigned_agent_id, req.orgId]);
     if (!agent) return sendError(res, 400, 'Assigned agent not found');
@@ -512,6 +554,10 @@ router.put('/deliverables/:id', (req, res) => {
 
   if (req.body.name !== undefined && (!req.body.name || !req.body.name.trim())) {
     return sendError(res, 400, 'Name is required');
+  }
+  if (req.body.branch_name) {
+    try { git.validateBranchName(req.body.branch_name); }
+    catch (e) { return sendError(res, 400, e.message); }
   }
   if (req.body.assigned_agent_id) {
     const agent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [req.body.assigned_agent_id, req.orgId]);
@@ -1359,6 +1405,9 @@ router.delete('/:id/branches/:name(*)', (req, res) => {
   if (!project) return sendError(res, 404, 'Project not found');
 
   const branchName = req.params.name;
+  try { git.validateBranchName(branchName); }
+  catch (e) { return sendError(res, 400, e.message); }
+
   const repo = repoPath(req.orgId, project.id);
 
   try {

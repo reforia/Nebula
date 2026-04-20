@@ -23,13 +23,13 @@ function git(args, opts = {}) {
  * confuse git. Even with execFile we still want to reject names starting with
  * `-` (would be parsed as a flag) and the `..` range separator.
  */
-function validateBranchName(name) {
+export function validateBranchName(name) {
   if (!name || typeof name !== 'string') throw new Error('Branch name is required');
   // Allow alphanumeric, hyphens, underscores, dots, slashes (for feature/xyz)
   if (!/^[a-zA-Z0-9._\/-]+$/.test(name)) {
     throw new Error(`Invalid branch name: "${name}" — only alphanumeric, hyphens, underscores, dots, and slashes allowed`);
   }
-  if (name.startsWith('-') || name.includes('..')) {
+  if (name.startsWith('-') || name.includes('..') || name.startsWith('/') || name.endsWith('/')) {
     throw new Error(`Invalid branch name: "${name}"`);
   }
 }

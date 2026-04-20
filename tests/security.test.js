@@ -226,6 +226,107 @@ describe('Security & Edge Cases', () => {
     });
   });
 
+  // ==================== Deliverable branch_name validation ====================
+
+  describe('deliverable branch_name path traversal', () => {
+    async function makeProjectWithMilestone() {
+      const coord = await createAgent('DelCoord');
+      const proj = await request(app, 'POST', '/api/projects', {
+        cookie,
+        body: { name: 'DelProj', git_remote_url: 'git@test:org/del.git', coordinator_agent_id: coord.id },
+      });
+      const m = await request(app, 'POST', `/api/projects/${proj.body.id}/milestones`, {
+        cookie, body: { name: 'M1' },
+      });
+      return { projectId: proj.body.id, milestoneId: m.body.id };
+    }
+
+    it('rejects branch_name with .. on deliverable create', async () => {
+      const { milestoneId } = await makeProjectWithMilestone();
+      const res = await request(app, 'POST', `/api/projects/milestones/${milestoneId}/deliverables`, {
+        cookie, body: { name: 'D', branch_name: '../../etc/passwd' },
+      });
+      assert.equal(res.status, 400);
+      assert.ok(/branch name/i.test(res.body.error));
+    });
+
+    it('rejects branch_name with shell metacharacters on deliverable create', async () => {
+      const { milestoneId } = await makeProjectWithMilestone();
+      const res = await request(app, 'POST', `/api/projects/milestones/${milestoneId}/deliverables`, {
+        cookie, body: { name: 'D', branch_name: 'feature/$(whoami)' },
+      });
+      assert.equal(res.status, 400);
+    });
+
+    it('rejects branch_name with .. on deliverable update', async () => {
+      const { milestoneId } = await makeProjectWithMilestone();
+      const created = await request(app, 'POST', `/api/projects/milestones/${milestoneId}/deliverables`, {
+        cookie, body: { name: 'D' },
+      });
+      const res = await request(app, 'PUT', `/api/projects/deliverables/${created.body.id}`, {
+        cookie, body: { branch_name: '../escape' },
+      });
+      assert.equal(res.status, 400);
+    });
+
+    it('rejects branch_name on bulk project create with milestones', async () => {
+      const coord = await createAgent('BulkCoord');
+      const res = await request(app, 'POST', '/api/projects', {
+        cookie,
+        body: {
+          name: 'BulkProj',
+          git_remote_url: 'git@test:org/bulk.git',
+          coordinator_agent_id: coord.id,
+          milestones: [{
+            name: 'M1',
+            deliverables: [{ name: 'D1', branch_name: '../../../outside' }],
+          }],
+        },
+      });
+      assert.equal(res.status, 400);
+    });
+
+    it('accepts valid branch_name on deliverable create', async () => {
+      const { milestoneId } = await makeProjectWithMilestone();
+      const res = await request(app, 'POST', `/api/projects/milestones/${milestoneId}/deliverables`, {
+        cookie, body: { name: 'D', branch_name: 'feature/new-auth' },
+      });
+      assert.equal(res.status, 201);
+    });
+  });
+
+  describe('DELETE /api/projects/:id/branches/:name traversal', () => {
+    it('rejects branch name containing ..', async () => {
+      const coord = await createAgent('DelBranch');
+      const proj = await request(app, 'POST', '/api/projects', {
+        cookie,
+        body: { name: 'BranchProj', git_remote_url: 'git@test:org/bd.git', coordinator_agent_id: coord.id },
+      });
+      const res = await request(app, 'DELETE', `/api/projects/${proj.body.id}/branches/..%2Fetc%2Fpasswd`, { cookie });
+      assert.equal(res.status, 400);
+    });
+  });
+
+  describe('executor _resolveAgentDir defends against bad branch names', () => {
+    it('throws synchronously when enqueue passes traversal branch name', async () => {
+      const agent = await createAgent('DefenderBot');
+      const coord = await createAgent('DefProjCoord');
+      const proj = await request(app, 'POST', '/api/projects', {
+        cookie,
+        body: { name: 'DefProj', git_remote_url: 'git@test:org/def.git', coordinator_agent_id: coord.id },
+      });
+
+      await assert.rejects(
+        executor.enqueue(agent.id, 'hi', {
+          projectId: proj.body.id,
+          branchName: '../../evil',
+          conversationId: null,
+        }),
+        /Invalid branch name/,
+      );
+    });
+  });
+
   // ==================== Executor Edge Cases ====================
 
   describe('executor cancel edge cases', () => {
