@@ -16,6 +16,20 @@ function getProjectForOrg(projectId, orgId) {
   return getOne('SELECT id, name FROM projects WHERE id = ? AND org_id = ?', [projectId, orgId]);
 }
 
+/**
+ * Partial-update field resolver. Distinguishes three states:
+ *   - field omitted from body → undefined → keep old value
+ *   - field present but empty/whitespace → { error } (caller should 400)
+ *   - field present and non-empty → trimmed new value
+ * Prevents silent data loss from the old `body.x?.trim() || current` pattern,
+ * which treated a deliberate empty string the same as "not sent".
+ */
+function resolveTextField(value, current) {
+  if (value === undefined) return { value: current };
+  if (typeof value !== 'string' || !value.trim()) return { error: true };
+  return { value: value.trim() };
+}
+
 // --- Agent Memory CRUD: /api/agents/:agentId/memory ---
 
 const agentMemoryRouter = Router();
@@ -87,24 +101,25 @@ agentMemoryRouter.put('/:agentId/memory/:memoryId', (req, res) => {
   if (!memory) return res.status(404).json({ error: 'Memory not found' });
 
   const { title, description, content } = req.body;
+  const t = resolveTextField(title, memory.title);
+  const d = resolveTextField(description, memory.description);
+  const c = resolveTextField(content, memory.content);
+  if (t.error || d.error || c.error) {
+    return res.status(400).json({ error: 'Title, description, and content cannot be empty' });
+  }
 
   // If title changed, check uniqueness
-  if (title && title.trim().toLowerCase() !== memory.title.toLowerCase()) {
+  if (t.value.toLowerCase() !== memory.title.toLowerCase()) {
     const dup = getOne(
       'SELECT id FROM memories WHERE owner_type = ? AND owner_id = ? AND title = ? COLLATE NOCASE AND id != ?',
-      ['agent', req.params.agentId, title.trim(), memory.id]
+      ['agent', req.params.agentId, t.value, memory.id]
     );
     if (dup) return res.status(409).json({ error: 'A memory with this title already exists' });
   }
 
   run(
     `UPDATE memories SET title = ?, description = ?, content = ?, updated_at = datetime('now') WHERE id = ?`,
-    [
-      title?.trim() || memory.title,
-      description?.trim() || memory.description,
-      content?.trim() || memory.content,
-      memory.id,
-    ]
+    [t.value, d.value, c.value, memory.id]
   );
   rebuildIndex('agent', req.params.agentId);
 
@@ -200,23 +215,24 @@ projectMemoryRouter.put('/:projectId/memory/:memoryId', (req, res) => {
   if (!memory) return res.status(404).json({ error: 'Memory not found' });
 
   const { title, description, content } = req.body;
+  const t = resolveTextField(title, memory.title);
+  const d = resolveTextField(description, memory.description);
+  const c = resolveTextField(content, memory.content);
+  if (t.error || d.error || c.error) {
+    return res.status(400).json({ error: 'Title, description, and content cannot be empty' });
+  }
 
-  if (title && title.trim().toLowerCase() !== memory.title.toLowerCase()) {
+  if (t.value.toLowerCase() !== memory.title.toLowerCase()) {
     const dup = getOne(
       'SELECT id FROM memories WHERE owner_type = ? AND owner_id = ? AND title = ? COLLATE NOCASE AND id != ?',
-      ['project', req.params.projectId, title.trim(), memory.id]
+      ['project', req.params.projectId, t.value, memory.id]
     );
     if (dup) return res.status(409).json({ error: 'A memory with this title already exists' });
   }
 
   run(
     `UPDATE memories SET title = ?, description = ?, content = ?, updated_at = datetime('now') WHERE id = ?`,
-    [
-      title?.trim() || memory.title,
-      description?.trim() || memory.description,
-      content?.trim() || memory.content,
-      memory.id,
-    ]
+    [t.value, d.value, c.value, memory.id]
   );
   rebuildIndex('project', req.params.projectId);
 

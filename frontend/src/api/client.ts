@@ -1,5 +1,26 @@
 const BASE = '';
 
+// Single-flight refresh — if N requests 401 at once, they all wait on the same
+// refresh call instead of each POSTing /api/auth/refresh in parallel. Without
+// this, concurrent refreshes rotate the refresh cookie in a race and some
+// requests end up retrying with an already-invalidated token.
+let refreshInflight: Promise<boolean> | null = null;
+
+function sharedRefresh(): Promise<boolean> {
+  if (!refreshInflight) {
+    refreshInflight = fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+      credentials: 'same-origin',
+    })
+      .then((r) => r.ok)
+      .catch(() => false)
+      .finally(() => { refreshInflight = null; });
+  }
+  return refreshInflight;
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${url}`, {
     ...options,
@@ -11,14 +32,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   });
 
   if (res.status === 401) {
-    // Try refreshing the token before redirecting
-    const refreshRes = await fetch('/api/auth/refresh', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-      credentials: 'same-origin',
-    });
-    if (refreshRes.ok) {
+    if (await sharedRefresh()) {
       // Retry the original request
       const retryRes = await fetch(`${BASE}${url}`, {
         ...options,

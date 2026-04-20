@@ -22,8 +22,14 @@ export function useWebSocket() {
   const [connected, setConnected] = useState(false);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
   const isReconnect = useRef(false);
+  // Set on unmount so any in-flight onclose callback skips scheduling a new
+  // reconnect. Without this, closing the socket during cleanup fires onclose
+  // which schedules a fresh setTimeout after the timer was already cleared.
+  const cancelledRef = useRef(false);
+  const reconnectAttempts = useRef(0);
 
   const connect = useCallback(async () => {
+    if (cancelledRef.current) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     // Only refresh token on reconnect — first connect has a fresh token from login
@@ -39,10 +45,13 @@ export function useWebSocket() {
     }
     isReconnect.current = true;
 
+    if (cancelledRef.current) return;
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
     ws.onopen = () => {
+      reconnectAttempts.current = 0;
       setConnected(true);
       // Emit synthetic event so listeners can clear stale state BEFORE snapshot messages arrive
       for (const listener of listenersRef.current) {
@@ -61,7 +70,13 @@ export function useWebSocket() {
 
     ws.onclose = () => {
       setConnected(false);
-      reconnectTimer.current = setTimeout(connect, 3000);
+      if (cancelledRef.current) return;
+      // Exponential backoff with jitter — caps at 30s. Jitter prevents every
+      // tab in a restarting browser from reconnecting in lockstep.
+      const attempt = ++reconnectAttempts.current;
+      const base = Math.min(30000, 1000 * 2 ** Math.min(attempt, 5));
+      const delay = Math.round(base * (0.5 + Math.random() * 0.5));
+      reconnectTimer.current = setTimeout(connect, delay);
     };
 
     ws.onerror = () => ws.close();
@@ -70,10 +85,13 @@ export function useWebSocket() {
   }, []);
 
   useEffect(() => {
+    cancelledRef.current = false;
     connect();
     return () => {
+      cancelledRef.current = true;
       clearTimeout(reconnectTimer.current);
       wsRef.current?.close();
+      wsRef.current = null;
     };
   }, [connect]);
 

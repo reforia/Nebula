@@ -48,6 +48,20 @@ export default function MessageInput({ onSend, onCancel, disabled, isTyping, age
     [agents, currentAgentId]
   );
 
+  // Object URLs for image previews. Previously we called URL.createObjectURL
+  // inline in the render, which allocated a fresh blob URL on every render
+  // and never revoked any of them. Memoize against the file list and revoke
+  // in cleanup so the browser can reclaim the blobs.
+  const imagePreviews = useMemo(
+    () => pendingImages.map(file => ({ file, url: URL.createObjectURL(file) })),
+    [pendingImages]
+  );
+  useEffect(() => {
+    return () => {
+      imagePreviews.forEach(p => URL.revokeObjectURL(p.url));
+    };
+  }, [imagePreviews]);
+
   // Commands that appear in the @ autocomplete
   const commands = useMemo(() => hideNotify ? [] : [
     { name: 'notify', description: 'Send a task to an agent (fire-and-forget)', emoji: '📢' },
@@ -269,12 +283,12 @@ export default function MessageInput({ onSend, onCancel, disabled, isTyping, age
       )}
 
       {/* Image preview strip */}
-      {pendingImages.length > 0 && (
+      {imagePreviews.length > 0 && (
         <div className="flex gap-2 px-3 sm:px-4 pt-2 overflow-x-auto">
-          {pendingImages.map((file, i) => (
+          {imagePreviews.map(({ file, url }, i) => (
             <div key={i} className="relative flex-shrink-0">
               <img
-                src={URL.createObjectURL(file)}
+                src={url}
                 alt={file.name}
                 className="h-16 w-16 object-cover rounded-lg border border-nebula-border"
               />

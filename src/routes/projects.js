@@ -809,6 +809,11 @@ router.post('/:id/messages/read', (req, res) => {
   res.json({ ok: true });
 });
 
+// Cap recursive mention chains so a loop like `@Alice` → response contains `@Bob`
+// → response contains `@Alice` → ... cannot run forever. Three hops matches the
+// coordinator-dispatch-follow-up depth we actually design for.
+const MAX_PROJECT_MENTION_DEPTH = 3;
+
 /**
  * Process @mentions in project conversation text.
  * @notify is intentionally NOT supported in projects — all mentions route responses
@@ -820,10 +825,15 @@ router.post('/:id/messages/read', (req, res) => {
  * @param {Object} project - project DB row
  * @param {Object} conversation - conversation DB row
  * @param {string} orgId - org ID
+ * @param {number} [depth=0] - recursion depth; capped at MAX_PROJECT_MENTION_DEPTH
  * @returns {Promise<Array<{ agentName: string, agentEmoji: string, text: string }>>}
  */
-function processProjectMentions(text, excludeAgentId, project, conversation, orgId) {
+function processProjectMentions(text, excludeAgentId, project, conversation, orgId, depth = 0) {
   if (!text) return Promise.resolve([]);
+  if (depth >= MAX_PROJECT_MENTION_DEPTH) {
+    console.warn(`[project ${project.id}] mention recursion capped at depth ${depth}`);
+    return Promise.resolve([]);
+  }
 
   const mentionRe = /@(\S+)/g;
   const mentions = [...text.matchAll(mentionRe)]
@@ -881,7 +891,7 @@ function processProjectMentions(text, excludeAgentId, project, conversation, org
         broadcastUnreadCounts(orgId);
 
         // Recursively process mentions in the mentioned agent's response (fire-and-forget)
-        processProjectMentions(safeText, mentioned.id, project, conversation, orgId);
+        processProjectMentions(safeText, mentioned.id, project, conversation, orgId, depth + 1);
 
         return { agentName: mentioned.name, agentEmoji: mentioned.emoji, text: safeText };
       })
@@ -996,7 +1006,10 @@ router.post('/:id/messages', async (req, res) => {
       broadcastUnreadCounts(orgId);
 
       // Scan coordinator's response for @mentions — route to project agents
-      // When all mentioned agents complete, trigger coordinator follow-up to synthesize
+      // When all mentioned agents complete, trigger coordinator follow-up to synthesize.
+      // depth starts at 0 because this is a fresh dispatch chain from the coordinator's
+      // own reasoning, not a recursive hop inside an existing chain. The chain that
+      // fans out from here is bounded by MAX_PROJECT_MENTION_DEPTH via processProjectMentions.
       processProjectMentions(safeText, targetAgentId, project, conversation, orgId)
         .then(responses => {
           if (responses.length === 0) return;
@@ -1041,7 +1054,10 @@ router.post('/:id/messages', async (req, res) => {
               broadcastToOrg(orgId, { type: 'new_message', project_id: project.id, message: followUpMsg });
               broadcastUnreadCounts(orgId);
 
-              // Process mentions in follow-up (fire-and-forget, no further follow-up chaining)
+              // Process mentions in follow-up (fire-and-forget, no further follow-up chaining).
+              // depth=0 is safe because the outer .then(responses => ...) only fires follow-up
+              // once (line ~1013 guard), so this can't compound across repeated follow-ups.
+              // If that guard ever changes, pass through a budget here.
               processProjectMentions(safeFollowUp, targetAgentId, project, conversation, orgId);
             })
             .catch((err) => {
@@ -1061,8 +1077,12 @@ router.post('/:id/messages', async (req, res) => {
       broadcastUnreadCounts(orgId);
     });
 
-  // Process @mentions in user message — route to project agents
-  processProjectMentions(content.trim(), targetAgentId, project, conversation, orgId);
+  // Process @mentions in user message — but skip when the coordinator is the target.
+  // The coordinator is expected to dispatch via its own response (see line ~1000),
+  // so firing user-mentions here would double-dispatch every @mention alongside it.
+  if (targetAgentId !== project.coordinator_agent_id) {
+    processProjectMentions(content.trim(), targetAgentId, project, conversation, orgId);
+  }
 });
 
 // ==================== Project Tasks ====================
