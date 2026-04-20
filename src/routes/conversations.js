@@ -1,15 +1,13 @@
 import { Router } from 'express';
 import { getAll, getOne, run } from '../db.js';
 import { generateId } from '../utils/uuid.js';
+import { requireAgentInOrg } from '../utils/route-guards.js';
 
 // Agent-scoped routes: mounted at /api/agents
 export const agentConversationsRouter = Router();
 
 // GET /api/agents/:id/conversations
-agentConversationsRouter.get('/:id/conversations', (req, res) => {
-  const agent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
+agentConversationsRouter.get('/:id/conversations', requireAgentInOrg(), (req, res) => {
   const conversations = getAll(`
     SELECT c.*,
       (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.is_read = 0 AND m.role = 'assistant') as unread_count,
@@ -24,10 +22,8 @@ agentConversationsRouter.get('/:id/conversations', (req, res) => {
 });
 
 // POST /api/agents/:id/conversations
-agentConversationsRouter.post('/:id/conversations', (req, res) => {
-  const agent = getOne('SELECT * FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
+agentConversationsRouter.post('/:id/conversations', requireAgentInOrg(), (req, res) => {
+  const agent = req.agent;
   const { title } = req.body;
   const id = generateId();
   const sessionId = generateId();

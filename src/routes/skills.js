@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getAll, getOne, run } from '../db.js';
 import { generateId } from '../utils/uuid.js';
 import { checkSecretsForEnable } from '../services/secret-refs.js';
+import { requireAgentInOrg } from '../utils/route-guards.js';
 
 // Org-wide skills: mounted at /api/skills
 const skillsRouter = Router();
@@ -88,10 +89,7 @@ skillsRouter.delete('/:id', (req, res) => {
 export const agentSkillsRouter = Router();
 
 // GET /api/agents/:id/skills — list agent + org-wide skills
-agentSkillsRouter.get('/:id/skills', (req, res) => {
-  const agent = getOne('SELECT id, org_id FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
+agentSkillsRouter.get('/:id/skills', requireAgentInOrg(), (req, res) => {
   const skills = getAll(
     `SELECT *, CASE WHEN agent_id IS NULL THEN 'org' ELSE 'agent' END as scope
      FROM custom_skills
@@ -103,10 +101,7 @@ agentSkillsRouter.get('/:id/skills', (req, res) => {
 });
 
 // POST /api/agents/:id/skills — create agent-specific skill
-agentSkillsRouter.post('/:id/skills', (req, res) => {
-  const agent = getOne('SELECT id, org_id FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
+agentSkillsRouter.post('/:id/skills', requireAgentInOrg(), (req, res) => {
   const { name, description, content, enabled } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
 

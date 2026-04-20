@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import { getOne, getAll, run, setOrgSetting, getSetting, setSetting, initOrgDirectories, orgPath, db } from '../db.js';
+import { getOne, getAll, run, setOrgSetting, getSetting, setSetting, initOrgDirectories, seedDefaultOrgSettings, orgPath, db } from '../db.js';
 import { generateId } from '../utils/uuid.js';
 import { encrypt } from '../utils/crypto.js';
 import { getInstanceId } from '../services/license.js';
@@ -78,15 +78,7 @@ router.post('/create-admin', (req, res) => {
       [orgId, orgDisplayName, userId]);
 
     initOrgDirectories(orgId);
-    const defaultOrgSettings = {
-      internal_api_token: crypto.randomUUID(),
-      smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_from: '',
-      notify_email_to: '', notifications_enabled: '0',
-      imap_host: '', imap_port: '993', imap_user: '', imap_pass: '', mail_enabled: '0',
-    };
-    for (const [key, value] of Object.entries(defaultOrgSettings)) {
-      setOrgSetting(orgId, key, value);
-    }
+    seedDefaultOrgSettings(orgId);
 
     db.exec('COMMIT');
 

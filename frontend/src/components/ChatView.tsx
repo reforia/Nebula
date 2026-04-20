@@ -1,13 +1,7 @@
 import { useRef, useEffect, useState, useMemo } from 'react';
 import { Agent, Message, Conversation, updateConversation, deleteConversation } from '../api/client';
 import ChatPanel from './ChatPanel';
-
-function agentColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  const hue = 30 + (Math.abs(hash) % 40);
-  return `hsl(${hue}, 55%, 58%)`;
-}
+import { agentColor } from '../utils/agentColor';
 
 interface Props {
   agent: Agent;

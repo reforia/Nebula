@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { execSync } from 'child_process';
 import { ExecutionBackend } from './base.js';
+import { processJsonLines } from './parse-helpers.js';
 
 export class CodexBackend extends ExecutionBackend {
   constructor() {
@@ -78,7 +79,6 @@ export class CodexBackend extends ExecutionBackend {
   }
 
   parseOutput(rawOutput, startTime) {
-    const lines = rawOutput.split('\n').filter(l => l.trim().startsWith('{'));
     let resultText = '';
     let usage = { input_tokens: 0, output_tokens: 0 };
     let cliSessionId = null;
@@ -107,18 +107,7 @@ export class CodexBackend extends ExecutionBackend {
       }
     };
 
-    for (const line of lines) {
-      try {
-        processEvent(JSON.parse(line));
-      } catch {
-        const parts = line.split(/(?<=\})\s*(?=\{)/);
-        if (parts.length > 1) {
-          for (const part of parts) {
-            try { processEvent(JSON.parse(part)); } catch {}
-          }
-        }
-      }
-    }
+    processJsonLines(rawOutput, processEvent);
 
     if (!resultText) resultText = rawOutput.trim();
     return { result: resultText, duration_ms: duration, total_cost_usd: 0, usage, tool_history: toolHistory, cli_session_id: cliSessionId };

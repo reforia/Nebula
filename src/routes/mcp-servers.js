@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getAll, getOne, run } from '../db.js';
 import { generateId } from '../utils/uuid.js';
 import { checkSecretsForEnable } from '../services/secret-refs.js';
+import { requireAgentInOrg } from '../utils/route-guards.js';
 
 const VALID_TRANSPORTS = ['stdio', 'http', 'sse'];
 
@@ -169,10 +170,7 @@ mcpServersRouter.delete('/:id', (req, res) => {
 export const agentMcpServersRouter = Router();
 
 // GET /api/agents/:id/mcp-servers — list agent + org-wide MCP servers
-agentMcpServersRouter.get('/:id/mcp-servers', (req, res) => {
-  const agent = getOne('SELECT id, org_id FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
+agentMcpServersRouter.get('/:id/mcp-servers', requireAgentInOrg(), (req, res) => {
   const servers = getAll(
     `SELECT *, CASE WHEN agent_id IS NULL THEN 'org' ELSE 'agent' END as scope
      FROM mcp_servers
@@ -184,10 +182,7 @@ agentMcpServersRouter.get('/:id/mcp-servers', (req, res) => {
 });
 
 // POST /api/agents/:id/mcp-servers — create agent-specific MCP server
-agentMcpServersRouter.post('/:id/mcp-servers', (req, res) => {
-  const agent = getOne('SELECT id, org_id FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
+agentMcpServersRouter.post('/:id/mcp-servers', requireAgentInOrg(), (req, res) => {
   const { name, transport, config, enabled } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
   if (transport && !VALID_TRANSPORTS.includes(transport)) {

@@ -3,24 +3,19 @@ import { getAll, getOne, run } from '../db.js';
 import { generateId } from '../utils/uuid.js';
 import { registerCron, unregisterCron, fireTask, validateCron } from '../services/scheduler.js';
 import { buildUpdate } from '../utils/update-builder.js';
+import { requireAgentInOrg } from '../utils/route-guards.js';
 
 // Agent-scoped routes: mounted at /api/agents
 export const agentTasksRouter = Router();
 
 // GET /api/agents/:id/tasks
-agentTasksRouter.get('/:id/tasks', (req, res) => {
-  const agent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
+agentTasksRouter.get('/:id/tasks', requireAgentInOrg(), (req, res) => {
   const tasks = getAll('SELECT * FROM tasks WHERE agent_id = ? ORDER BY created_at ASC', [req.params.id]);
   res.json(tasks);
 });
 
 // POST /api/agents/:id/tasks — create task
-agentTasksRouter.post('/:id/tasks', (req, res) => {
-  const agent = getOne('SELECT id FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
+agentTasksRouter.post('/:id/tasks', requireAgentInOrg(), (req, res) => {
   const { name, prompt, cron_expression, trigger_type, enabled, max_turns, timeout_ms } = req.body;
   const type = trigger_type || 'cron';
 

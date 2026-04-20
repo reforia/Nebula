@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { getAllTasks, CalendarTask } from '../api/client';
+import { agentColor } from '../utils/agentColor';
 
 // --- Cron parser: expands a cron field into a set of matching values ---
 
@@ -80,12 +81,6 @@ function cronTime(cron: string): string {
   return `${String(hourVal).padStart(2, '0')}:${String(minVal).padStart(2, '0')}`;
 }
 
-function agentColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  const hue = 30 + (Math.abs(hash) % 40);
-  return `hsl(${hue}, 55%, 58%)`;
-}
 
 interface DayTask {
   task: CalendarTask;

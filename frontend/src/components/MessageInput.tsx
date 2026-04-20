@@ -1,12 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Agent, Message } from '../api/client';
-
-function agentColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  const hue = 30 + (Math.abs(hash) % 40);
-  return `hsl(${hue}, 55%, 58%)`;
-}
+import { agentColor } from '../utils/agentColor';
 
 interface Props {
   onSend: (content: string, images: File[]) => Promise<void> | void;

@@ -3,13 +3,7 @@ import { Agent, Project, SearchResult, searchMessages } from '../api/client';
 import OrgSwitcher from './OrgSwitcher';
 import FeedbackModal from './FeedbackModal';
 import { useAuth } from '../contexts/AuthContext';
-
-function agentColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  const hue = 30 + (Math.abs(hash) % 40);
-  return `hsl(${hue}, 55%, 58%)`;
-}
+import { agentColor } from '../utils/agentColor';
 
 interface Props {
   agents: Agent[];

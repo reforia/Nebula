@@ -1,7 +1,6 @@
 import { Router } from 'express';
-import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import { getOne, getAll, run, setOrgSetting, initOrgDirectories, db } from '../db.js';
+import { getOne, getAll, run, initOrgDirectories, seedDefaultOrgSettings, db } from '../db.js';
 import { generateId } from '../utils/uuid.js';
 import { generateAccessToken, generateRefreshToken, verifyAccessToken, verifyRefreshToken, setTokenCookies, clearTokenCookies } from '../utils/jwt.js';
 import { extractAndSaveLicenseFromUserinfo, getLicenseStatus } from '../services/license.js';
@@ -147,15 +146,7 @@ if (AUTH_PROVIDER === 'enigma') {
           org = { id: orgId };
 
           initOrgDirectories(orgId);
-          const defaultOrgSettings = {
-            internal_api_token: crypto.randomUUID(),
-            smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_from: '',
-            notify_email_to: '', notifications_enabled: '0',
-            imap_host: '', imap_port: '993', imap_user: '', imap_pass: '', mail_enabled: '0',
-          };
-          for (const [key, value] of Object.entries(defaultOrgSettings)) {
-            setOrgSetting(orgId, key, value);
-          }
+          seedDefaultOrgSettings(orgId);
         }
 
         db.exec('COMMIT');
@@ -213,15 +204,7 @@ if (AUTH_PROVIDER === 'local') {
         [orgId, orgName?.trim() || `${(name || normalizedEmail).trim()}'s Workspace`, userId]);
 
       initOrgDirectories(orgId);
-      const defaultOrgSettings = {
-        internal_api_token: crypto.randomUUID(),
-        smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_from: '',
-        notify_email_to: '', notifications_enabled: '0',
-        imap_host: '', imap_port: '993', imap_user: '', imap_pass: '', mail_enabled: '0',
-      };
-      for (const [key, value] of Object.entries(defaultOrgSettings)) {
-        setOrgSetting(orgId, key, value);
-      }
+      seedDefaultOrgSettings(orgId);
 
       db.exec('COMMIT');
 

@@ -3,6 +3,7 @@ import fs from 'fs';
 import { execSync } from 'child_process';
 import { ExecutionBackend } from './base.js';
 import { orgPath } from '../db.js';
+import { processJsonLines } from './parse-helpers.js';
 
 export class ClaudeCLIBackend extends ExecutionBackend {
   constructor() {
@@ -103,7 +104,6 @@ export class ClaudeCLIBackend extends ExecutionBackend {
   }
 
   parseOutput(rawOutput) {
-    const lines = rawOutput.split('\n').filter(l => l.trim().startsWith('{'));
     let resultEvent = null;
     let cliSessionId = null;
     const toolHistory = [];
@@ -152,20 +152,7 @@ export class ClaudeCLIBackend extends ExecutionBackend {
       }
     };
 
-    for (const line of lines) {
-      try {
-        processEvent(JSON.parse(line));
-      } catch {
-        // PTY may concatenate multiple JSON objects on one line without newline separators.
-        // Try splitting at top-level object boundaries: }{ or } {
-        const parts = line.split(/(?<=\})\s*(?=\{)/);
-        if (parts.length > 1) {
-          for (const part of parts) {
-            try { processEvent(JSON.parse(part)); } catch {}
-          }
-        }
-      }
-    }
+    processJsonLines(rawOutput, processEvent);
 
     if (!resultEvent) {
       throw new Error('No result event found in stream-json output');

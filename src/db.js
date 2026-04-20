@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { runMigrations } from './migrations.js';
 import { decrypt } from './utils/crypto.js';
 
@@ -68,6 +69,22 @@ Shared context available to all agents in this organization.
 ## Available Services
 Configure your service connections here. All agents can use curl/git/ssh via the Bash tool.
 `);
+  }
+}
+
+// Seed the standard blank-slate org_settings row set for a newly created org.
+// Keep this as the single source of truth for what a fresh org starts with —
+// route handlers (auth register/OAuth callback, setup wizard, create-org) all
+// call this instead of repeating the object literal.
+export function seedDefaultOrgSettings(orgId) {
+  const defaults = {
+    internal_api_token: crypto.randomUUID(),
+    smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_from: '',
+    notify_email_to: '', notifications_enabled: '0',
+    imap_host: '', imap_port: '993', imap_user: '', imap_pass: '', mail_enabled: '0',
+  };
+  for (const [key, value] of Object.entries(defaults)) {
+    setOrgSetting(orgId, key, value);
   }
 }
 

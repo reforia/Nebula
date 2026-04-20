@@ -16,7 +16,7 @@ process.env.NEBULA_ENCRYPTION_KEY ||=
   '0000000000000000000000000000000000000000000000000000000000000001';
 
 // Now safe to import modules that depend on DATA_DIR
-const { getAll, getOne, run, getSetting, setSetting, getOrgSetting, setOrgSetting, db, DATA_DIR } = await import('../src/db.js');
+const { getAll, getOne, run, getSetting, setSetting, getOrgSetting, setOrgSetting, seedDefaultOrgSettings, db, DATA_DIR } = await import('../src/db.js');
 const { generateId } = await import('../src/utils/uuid.js');
 const { generateAccessToken, generateRefreshToken } = await import('../src/utils/jwt.js');
 const authModule = await import('../src/routes/auth.js');
@@ -162,15 +162,7 @@ export function registerTestUser(app, overrides = {}) {
   run('INSERT INTO organizations (id, name, owner_id) VALUES (?, ?, ?)', [orgId, orgName, userId]);
 
   initOrgDirectories(orgId);
-  const defaultSettings = {
-    internal_api_token: crypto.randomUUID(),
-    smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_from: '',
-    notify_email_to: '', notifications_enabled: '0',
-    imap_host: '', imap_port: '993', imap_user: '', imap_pass: '', mail_enabled: '0',
-  };
-  for (const [k, v] of Object.entries(defaultSettings)) {
-    setOrgSetting(orgId, k, v);
-  }
+  seedDefaultOrgSettings(orgId);
 
   const accessToken = generateAccessToken({ userId, orgId, email: email.toLowerCase() });
   const refreshToken = generateRefreshToken({ userId, email: email.toLowerCase() });

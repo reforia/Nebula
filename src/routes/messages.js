@@ -8,6 +8,7 @@ import { broadcastToOrg, broadcastUnreadCounts, hasActiveClients } from '../serv
 import { sendNotification } from '../services/email.js';
 import { redactSecrets } from '../utils/redact.js';
 import { enrichReplyTo } from '../services/message-service.js';
+import { requireAgentInOrg } from '../utils/route-guards.js';
 
 const router = Router();
 
@@ -254,10 +255,7 @@ router.get('/search/messages', (req, res) => {
 });
 
 // GET /api/agents/:id/messages — paginated, optionally filtered by conversation
-router.get('/:id/messages', (req, res) => {
-  const agent = getOne('SELECT id, org_id FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
+router.get('/:id/messages', requireAgentInOrg(), (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const before = req.query.before;
   const conversationId = req.query.conversation_id;
@@ -308,9 +306,8 @@ router.get('/:id/messages', (req, res) => {
 });
 
 // POST /api/agents/:id/messages — send message
-router.post('/:id/messages', async (req, res) => {
-  const agent = getOne('SELECT * FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+router.post('/:id/messages', requireAgentInOrg(), async (req, res) => {
+  const agent = req.agent;
   if (!agent.enabled) return res.status(400).json({ error: 'Agent is disabled' });
 
   const { content, conversation_id, from_agent_id, image_ids, reply_to_id } = req.body;
@@ -555,19 +552,13 @@ router.post('/:id/messages', async (req, res) => {
 });
 
 // POST /api/agents/:id/cancel — cancel running execution
-router.post('/:id/cancel', (req, res) => {
-  const agent = getOne('SELECT id, org_id FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
+router.post('/:id/cancel', requireAgentInOrg(), (req, res) => {
   const cancelled = executor.cancel(req.params.id);
   res.json({ ok: true, cancelled });
 });
 
 // PUT /api/agents/:id/read — mark all as read
-router.put('/:id/read', (req, res) => {
-  const agent = getOne('SELECT id, org_id FROM agents WHERE id = ? AND org_id = ?', [req.params.id, req.orgId]);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
+router.put('/:id/read', requireAgentInOrg(), (req, res) => {
   const conversationId = req.query.conversation_id;
   if (conversationId) {
     run(

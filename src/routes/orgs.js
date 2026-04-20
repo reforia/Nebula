@@ -1,7 +1,6 @@
 import { Router } from 'express';
-import crypto from 'crypto';
 import fs from 'fs';
-import { getAll, getOne, run, setOrgSetting, initOrgDirectories, orgPath } from '../db.js';
+import { getAll, getOne, run, initOrgDirectories, seedDefaultOrgSettings, orgPath } from '../db.js';
 import { generateId } from '../utils/uuid.js';
 
 const router = Router();
@@ -28,15 +27,7 @@ router.post('/', (req, res) => {
 
   // Initialize directories and default settings
   initOrgDirectories(orgId);
-  const defaultOrgSettings = {
-    internal_api_token: crypto.randomUUID(),
-    smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_from: '',
-    notify_email_to: '', notifications_enabled: '0',
-    imap_host: '', imap_port: '993', imap_user: '', imap_pass: '', mail_enabled: '0',
-  };
-  for (const [key, value] of Object.entries(defaultOrgSettings)) {
-    setOrgSetting(orgId, key, value);
-  }
+  seedDefaultOrgSettings(orgId);
 
   const org = getOne('SELECT id, name, owner_id, created_at, updated_at FROM organizations WHERE id = ?', [orgId]);
   res.status(201).json(org);
