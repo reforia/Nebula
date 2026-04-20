@@ -10,6 +10,10 @@ import cookieParser from 'cookie-parser';
 const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-test-'));
 process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.NODE_ENV = 'test';
+// Deterministic test key (never used outside the test runner — do not reuse).
+// Must be set before any module import that transitively loads src/utils/crypto.js.
+process.env.NEBULA_ENCRYPTION_KEY ||=
+  '0000000000000000000000000000000000000000000000000000000000000001';
 
 // Now safe to import modules that depend on DATA_DIR
 const { getAll, getOne, run, getSetting, setSetting, getOrgSetting, setOrgSetting, db, DATA_DIR } = await import('../src/db.js');

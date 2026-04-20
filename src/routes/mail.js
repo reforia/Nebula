@@ -29,20 +29,7 @@ router.get('/inbox', async (req, res) => {
   }
 });
 
-// GET /api/mail/:uid
-router.get('/:uid', async (req, res) => {
-  try {
-    const uid = parseInt(req.params.uid);
-    if (isNaN(uid)) return res.status(400).json({ error: 'Invalid UID' });
-    const folder = req.query.folder || 'INBOX';
-    const message = await fetchMessage(req.orgId, uid, { folder });
-    res.json(message);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/mail/search
+// GET /api/mail/search — must be declared before /:uid so the literal path wins
 router.get('/search', async (req, res) => {
   try {
     const { from, to, subject, body, text, since, before, unseen, folder, limit } = req.query;
@@ -61,6 +48,19 @@ router.get('/search', async (req, res) => {
       limit: Math.min(parseInt(limit) || 20, 100),
     });
     res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/mail/:uid
+router.get('/:uid', async (req, res) => {
+  try {
+    const uid = parseInt(req.params.uid);
+    if (isNaN(uid)) return res.status(400).json({ error: 'Invalid UID' });
+    const folder = req.query.folder || 'INBOX';
+    const message = await fetchMessage(req.orgId, uid, { folder });
+    res.json(message);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

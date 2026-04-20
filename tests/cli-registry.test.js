@@ -8,6 +8,8 @@ import path from 'path';
 const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-registry-test-'));
 process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.NODE_ENV = 'test';
+process.env.NEBULA_ENCRYPTION_KEY ||=
+  '0000000000000000000000000000000000000000000000000000000000000001';
 
 // Import base class and registry directly (not from index.js which auto-detects)
 const { ExecutionBackend } = await import('../src/backends/base.js');

@@ -1,9 +1,20 @@
 import { WebSocketServer } from 'ws';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { getOne, run } from '../db.js';
 import { broadcastToOrg } from './websocket.js';
 import { generateId } from '../utils/uuid.js';
+
+// Constant-time token comparison. Returns false on type mismatch or length
+// mismatch so timing cannot leak either the stored token's length or content.
+function safeTokenEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
 
 // Connected remote clients: agentId -> { ws, pendingRequests, device }
 const remoteClients = new Map();
@@ -36,7 +47,7 @@ export function initRemoteWebSocket() {
         clearTimeout(authTimeout);
 
         const agent = getOne('SELECT * FROM agents WHERE id = ?', [msg.agent_id]);
-        if (!agent || agent.execution_mode !== 'remote' || !agent.remote_token || agent.remote_token !== msg.token) {
+        if (!agent || agent.execution_mode !== 'remote' || !agent.remote_token || !safeTokenEqual(agent.remote_token, msg.token)) {
           ws.send(JSON.stringify({ type: 'auth_failed', error: 'Invalid agent ID or token' }));
           ws.close(4003, 'Auth failed');
           return;

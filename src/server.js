@@ -1,3 +1,7 @@
+// Prerequisites loaded from .env via `node --env-file-if-exists=.env` in
+// package.json scripts. Hard requirements validated on first import:
+//   - NEBULA_ENCRYPTION_KEY (src/utils/crypto.js — throws if missing/invalid)
+// See README "Quick Start" for the one-liner to generate and install the key.
 import express from 'express';
 import http from 'http';
 import path from 'path';

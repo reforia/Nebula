@@ -8,6 +8,8 @@ import path from 'path';
 const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-executor-test-'));
 process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.NODE_ENV = 'test';
+process.env.NEBULA_ENCRYPTION_KEY ||=
+  '0000000000000000000000000000000000000000000000000000000000000001';
 
 const executor = (await import('../src/services/executor.js')).default;
 

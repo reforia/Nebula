@@ -17,8 +17,10 @@ export function initWebSocket() {
           const clientInfo = clients.get(ws);
           if (clientInfo) {
             run(
-              'UPDATE messages SET is_read = 1 WHERE agent_id = ? AND is_read = 0',
-              [msg.agent_id]
+              `UPDATE messages SET is_read = 1
+               WHERE agent_id = ? AND is_read = 0
+               AND agent_id IN (SELECT id FROM agents WHERE org_id = ?)`,
+              [msg.agent_id, clientInfo.orgId]
             );
             broadcastUnreadCounts(clientInfo.orgId);
           }

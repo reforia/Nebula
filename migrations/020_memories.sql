@@ -1,5 +1,5 @@
 -- Memory system: structured, API-managed agent and project memories
-CREATE TABLE memories (
+CREATE TABLE IF NOT EXISTS memories (
     id TEXT PRIMARY KEY,
     owner_type TEXT NOT NULL,          -- 'agent' or 'project'
     owner_id TEXT NOT NULL,            -- agent_id or project_id
@@ -11,4 +11,4 @@ CREATE TABLE memories (
     UNIQUE(owner_type, owner_id, title COLLATE NOCASE)
 );
 
-CREATE INDEX idx_memories_owner ON memories(owner_type, owner_id);
+CREATE INDEX IF NOT EXISTS idx_memories_owner ON memories(owner_type, owner_id);

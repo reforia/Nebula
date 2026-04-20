@@ -1514,13 +1514,19 @@ router.get('/:id/vault/:path(*)', (req, res) => {
   const project = getProject(req.params.id, req.orgId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const content = git.readVaultFile(repoPath(req.orgId, project.id), req.params.path);
+  const filePath = req.params.path;
+  if (!filePath || filePath.includes('..') || filePath.startsWith('/')) {
+    return res.status(400).json({ error: 'Invalid file path' });
+  }
+
+  const content = git.readVaultFile(repoPath(req.orgId, project.id), filePath);
   if (content === null) return res.status(404).json({ error: 'File not found' });
 
   // Detect binary vs text by checking for null bytes
   if (content.includes('\0')) {
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${path.basename(req.params.path)}"`);
+    const safeName = path.basename(filePath).replace(/["\r\n]/g, '');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
   } else {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   }

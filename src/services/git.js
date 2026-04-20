@@ -1,17 +1,27 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
 const GIT = 'git';
 
-function exec(cmd, opts = {}) {
-  return execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], ...opts }).trim();
+// Argument-array exec — arguments are passed directly to the git binary
+// without a shell, so values like remote URLs, branch names, commit
+// messages, and file paths cannot be interpreted as shell metacharacters
+// (`$()`, backticks, `;`, `|`, `&&`). Always prefer this over string
+// interpolation for git commands.
+function git(args, opts = {}) {
+  return execFileSync(GIT, args, {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    ...opts,
+  }).toString().trim();
 }
 
 /**
- * Validate a branch name to prevent command injection.
- * Rejects names with shell metacharacters, allowing only safe git branch name chars.
+ * Validate a branch name to prevent command injection and reject refs that
+ * confuse git. Even with execFile we still want to reject names starting with
+ * `-` (would be parsed as a flag) and the `..` range separator.
  */
 function validateBranchName(name) {
   if (!name || typeof name !== 'string') throw new Error('Branch name is required');
@@ -35,17 +45,17 @@ function validateBranchName(name) {
  */
 export function initProjectRepo(repoPath, remoteUrl, { name = 'Project', description = '', cloneUrl, token, insecureSsl } = {}) {
   fs.mkdirSync(repoPath, { recursive: true });
-  exec(`${GIT} init --bare`, { cwd: repoPath });
+  git(['init', '--bare'], { cwd: repoPath });
 
   // Set default branch to main
-  exec(`${GIT} symbolic-ref HEAD refs/heads/main`, { cwd: repoPath });
+  git(['symbolic-ref', 'HEAD', 'refs/heads/main'], { cwd: repoPath });
 
   // Create scaffold in a temp directory (git init + add remote + push)
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-repo-init-'));
   try {
-    exec(`${GIT} init`, { cwd: tmpDir });
-    exec(`${GIT} checkout -b main`, { cwd: tmpDir });
-    exec(`${GIT} remote add origin "${repoPath}"`, { cwd: tmpDir });
+    git(['init'], { cwd: tmpDir });
+    git(['checkout', '-b', 'main'], { cwd: tmpDir });
+    git(['remote', 'add', 'origin', repoPath], { cwd: tmpDir });
 
     // Scaffold files
     fs.writeFileSync(path.join(tmpDir, 'README.md'), `# ${name}\n\n${description}\n`);
@@ -53,18 +63,22 @@ export function initProjectRepo(repoPath, remoteUrl, { name = 'Project', descrip
     fs.mkdirSync(path.join(tmpDir, 'vault'), { recursive: true });
     fs.writeFileSync(path.join(tmpDir, 'vault', '.gitkeep'), '');
 
-    exec(`${GIT} add -A`, { cwd: tmpDir });
-    exec(`${GIT} -c user.name="Nebula" -c user.email="nebula@local" commit -m "Initial project scaffold"`, { cwd: tmpDir });
-    exec(`${GIT} push origin main`, { cwd: tmpDir });
+    git(['add', '-A'], { cwd: tmpDir });
+    git([
+      '-c', 'user.name=Nebula',
+      '-c', 'user.email=nebula@local',
+      'commit', '-m', 'Initial project scaffold',
+    ], { cwd: tmpDir });
+    git(['push', 'origin', 'main'], { cwd: tmpDir });
 
     // Push scaffold to the remote repo via HTTPS+token
     if (cloneUrl && token) {
       const authUrl = buildAuthenticatedUrl(cloneUrl, token);
-      const sslFlag = insecureSsl ? '-c http.sslVerify=false ' : '';
-      exec(`${GIT} remote add upstream "${authUrl}"`, { cwd: tmpDir });
-      exec(`${GIT} ${sslFlag}push upstream main`, { cwd: tmpDir });
+      const sslFlags = insecureSsl ? ['-c', 'http.sslVerify=false'] : [];
+      git(['remote', 'add', 'upstream', authUrl], { cwd: tmpDir });
+      git([...sslFlags, 'push', 'upstream', 'main'], { cwd: tmpDir });
       // Remove the authenticated remote (token in URL)
-      exec(`${GIT} remote remove upstream`, { cwd: tmpDir });
+      git(['remote', 'remove', 'upstream'], { cwd: tmpDir });
     }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -72,7 +86,7 @@ export function initProjectRepo(repoPath, remoteUrl, { name = 'Project', descrip
 
   // Set origin on bare repo to SSH URL (for ongoing agent operations)
   if (remoteUrl) {
-    exec(`${GIT} --git-dir="${repoPath}" remote add origin "${remoteUrl}"`, { cwd: repoPath });
+    git([`--git-dir=${repoPath}`, 'remote', 'add', 'origin', remoteUrl], { cwd: repoPath });
   }
 }
 
@@ -111,24 +125,23 @@ export function cloneRepo(repoPath, remoteUrl, { cloneUrl, token, insecureSsl } 
   // Prefer HTTPS clone with token (most reliable — no SSH key setup needed)
   const useHttps = cloneUrl && token && /^https?:\/\//.test(cloneUrl);
   let url;
-  const configFlags = [];
+  const configArgs = [];
 
   if (useHttps) {
     url = buildAuthenticatedUrl(cloneUrl, token);
-    if (insecureSsl) configFlags.push('-c http.sslVerify=false');
+    if (insecureSsl) configArgs.push('-c', 'http.sslVerify=false');
   } else {
     // SSH clone — auto-accept new host keys for non-interactive environments
     url = remoteUrl;
-    configFlags.push('-c core.sshCommand="ssh -o StrictHostKeyChecking=accept-new"');
+    configArgs.push('-c', 'core.sshCommand=ssh -o StrictHostKeyChecking=accept-new');
   }
 
-  const flags = configFlags.length > 0 ? configFlags.join(' ') + ' ' : '';
-  exec(`${GIT} ${flags}clone --bare "${url}" "${repoPath}"`);
+  git([...configArgs, 'clone', '--bare', url, repoPath]);
 
   // After HTTPS clone, set origin to SSH URL for ongoing git operations (agents use SSH keys to push)
   if (useHttps && remoteUrl && remoteUrl !== cloneUrl) {
     try {
-      exec(`${GIT} --git-dir="${repoPath}" remote set-url origin "${remoteUrl}"`);
+      git([`--git-dir=${repoPath}`, 'remote', 'set-url', 'origin', remoteUrl]);
     } catch {}
   }
 }
@@ -141,7 +154,7 @@ export function ensureScaffold(repoPath, { name = 'Project' } = {}) {
   const defaultBranch = getDefaultBranch(repoPath);
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-scaffold-'));
   try {
-    exec(`${GIT} --git-dir="${repoPath}" worktree add "${tmpDir}" ${defaultBranch}`);
+    git([`--git-dir=${repoPath}`, 'worktree', 'add', tmpDir, defaultBranch]);
 
     let changed = false;
     if (!fs.existsSync(path.join(tmpDir, 'CLAUDE.md'))) {
@@ -159,17 +172,21 @@ export function ensureScaffold(repoPath, { name = 'Project' } = {}) {
     }
 
     if (changed) {
-      exec(`${GIT} add -A`, { cwd: tmpDir });
-      exec(`${GIT} -c user.name="Nebula" -c user.email="nebula@local" commit -m "Add project scaffold"`, { cwd: tmpDir });
+      git(['add', '-A'], { cwd: tmpDir });
+      git([
+        '-c', 'user.name=Nebula',
+        '-c', 'user.email=nebula@local',
+        'commit', '-m', 'Add project scaffold',
+      ], { cwd: tmpDir });
       // Push to remote if available
       try {
-        exec(`${GIT} push`, { cwd: tmpDir });
+        git(['push'], { cwd: tmpDir });
       } catch {
         // No remote configured, skip
       }
     }
   } finally {
-    try { exec(`${GIT} --git-dir="${repoPath}" worktree remove "${tmpDir}" --force`); } catch {}
+    try { git([`--git-dir=${repoPath}`, 'worktree', 'remove', tmpDir, '--force']); } catch {}
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 }
@@ -179,16 +196,16 @@ export function ensureScaffold(repoPath, { name = 'Project' } = {}) {
  */
 export function getDefaultBranch(repoPath) {
   try {
-    const head = exec(`${GIT} --git-dir="${repoPath}" symbolic-ref HEAD`);
+    const head = git([`--git-dir=${repoPath}`, 'symbolic-ref', 'HEAD']);
     return head.replace('refs/heads/', '');
   } catch {
     // No HEAD set, try common names
     try {
-      exec(`${GIT} --git-dir="${repoPath}" rev-parse --verify main`);
+      git([`--git-dir=${repoPath}`, 'rev-parse', '--verify', 'main']);
       return 'main';
     } catch {
       try {
-        exec(`${GIT} --git-dir="${repoPath}" rev-parse --verify master`);
+        git([`--git-dir=${repoPath}`, 'rev-parse', '--verify', 'master']);
         return 'master';
       } catch {
         return 'main';
@@ -201,7 +218,12 @@ export function getDefaultBranch(repoPath) {
  * Fetch from origin/upstream remote.
  */
 export function syncRemote(repoPath, remote = 'origin') {
-  exec(`${GIT} --git-dir="${repoPath}" fetch ${remote}`);
+  // Remote name must be a simple identifier — reject anything that could be
+  // misinterpreted as a flag or ref range.
+  if (typeof remote !== 'string' || !/^[a-zA-Z0-9._-]+$/.test(remote) || remote.startsWith('-')) {
+    throw new Error(`Invalid remote name: "${remote}"`);
+  }
+  git([`--git-dir=${repoPath}`, 'fetch', remote]);
 }
 
 /**
@@ -210,7 +232,7 @@ export function syncRemote(repoPath, remote = 'origin') {
 export function createBranch(repoPath, branchName) {
   validateBranchName(branchName);
   const defaultBranch = getDefaultBranch(repoPath);
-  exec(`${GIT} --git-dir="${repoPath}" branch "${branchName}" ${defaultBranch}`);
+  git([`--git-dir=${repoPath}`, 'branch', branchName, defaultBranch]);
 }
 
 /**
@@ -218,9 +240,9 @@ export function createBranch(repoPath, branchName) {
  */
 export function deleteBranch(repoPath, branchName) {
   validateBranchName(branchName);
-  exec(`${GIT} --git-dir="${repoPath}" branch -D "${branchName}"`);
+  git([`--git-dir=${repoPath}`, 'branch', '-D', branchName]);
   try {
-    exec(`${GIT} --git-dir="${repoPath}" push origin --delete "${branchName}"`);
+    git([`--git-dir=${repoPath}`, 'push', 'origin', '--delete', branchName]);
   } catch {
     // Remote might not have the branch
   }
@@ -232,7 +254,7 @@ export function deleteBranch(repoPath, branchName) {
 export function createWorktree(repoPath, worktreePath, branchName) {
   validateBranchName(branchName);
   fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
-  exec(`${GIT} --git-dir="${repoPath}" worktree add "${worktreePath}" "${branchName}"`);
+  git([`--git-dir=${repoPath}`, 'worktree', 'add', worktreePath, branchName]);
 }
 
 /**
@@ -240,7 +262,7 @@ export function createWorktree(repoPath, worktreePath, branchName) {
  */
 export function removeWorktree(repoPath, worktreePath) {
   try {
-    exec(`${GIT} --git-dir="${repoPath}" worktree remove "${worktreePath}" --force`);
+    git([`--git-dir=${repoPath}`, 'worktree', 'remove', worktreePath, '--force']);
   } catch {
     // Worktree might already be gone
   }
@@ -255,7 +277,11 @@ export function listBranches(repoPath) {
   const defaultBranch = getDefaultBranch(repoPath);
   let output;
   try {
-    output = exec(`${GIT} --git-dir="${repoPath}" for-each-ref --format="%(refname:short) %(upstream:track)" refs/heads/`);
+    output = git([
+      `--git-dir=${repoPath}`, 'for-each-ref',
+      '--format=%(refname:short) %(upstream:track)',
+      'refs/heads/',
+    ]);
   } catch {
     return [];
   }
@@ -270,7 +296,10 @@ export function listBranches(repoPath) {
     // Calculate ahead/behind relative to default branch
     if (name !== defaultBranch) {
       try {
-        const counts = exec(`${GIT} --git-dir="${repoPath}" rev-list --left-right --count ${defaultBranch}...${name}`);
+        const counts = git([
+          `--git-dir=${repoPath}`, 'rev-list', '--left-right', '--count',
+          `${defaultBranch}...${name}`,
+        ]);
         const [b, a] = counts.split('\t').map(Number);
         behind = b || 0;
         ahead = a || 0;
@@ -287,10 +316,11 @@ export function listBranches(repoPath) {
  * Get diff stats for a branch against the default branch.
  */
 export function diffBranch(repoPath, branchName) {
+  validateBranchName(branchName);
   const defaultBranch = getDefaultBranch(repoPath);
   try {
-    const stat = exec(`${GIT} --git-dir="${repoPath}" diff --stat ${defaultBranch}...${branchName}`);
-    const numstat = exec(`${GIT} --git-dir="${repoPath}" diff --numstat ${defaultBranch}...${branchName}`);
+    const stat = git([`--git-dir=${repoPath}`, 'diff', '--stat', `${defaultBranch}...${branchName}`]);
+    const numstat = git([`--git-dir=${repoPath}`, 'diff', '--numstat', `${defaultBranch}...${branchName}`]);
 
     const files = numstat.split('\n').filter(Boolean).map(line => {
       const [added, removed, file] = line.split('\t');
@@ -309,17 +339,20 @@ export function diffBranch(repoPath, branchName) {
 export function rebaseWorktree(repoPath, worktreePath) {
   const defaultBranch = getDefaultBranch(repoPath);
   // Fetch latest from bare repo
-  exec(`${GIT} fetch origin ${defaultBranch}`, { cwd: worktreePath });
-  exec(`${GIT} -c user.name="Nebula" -c user.email="nebula@local" rebase origin/${defaultBranch}`, { cwd: worktreePath });
+  git(['fetch', 'origin', defaultBranch], { cwd: worktreePath });
+  git([
+    '-c', 'user.name=Nebula',
+    '-c', 'user.email=nebula@local',
+    'rebase', `origin/${defaultBranch}`,
+  ], { cwd: worktreePath });
 }
 
 /**
  * Read vault directory listing from bare repo on default branch.
  */
 export function listVault(repoPath) {
-  const defaultBranch = getDefaultBranch(repoPath);
   try {
-    const output = exec(`${GIT} --git-dir="${repoPath}" ls-tree --name-only -r HEAD:vault/`);
+    const output = git([`--git-dir=${repoPath}`, 'ls-tree', '--name-only', '-r', 'HEAD:vault/']);
     return output.split('\n').filter(Boolean);
   } catch {
     return [];
@@ -333,7 +366,7 @@ export function readVaultFile(repoPath, filePath) {
   // Prevent path traversal
   if (filePath.includes('..') || filePath.startsWith('/')) return null;
   try {
-    return exec(`${GIT} --git-dir="${repoPath}" show HEAD:vault/${filePath}`);
+    return git([`--git-dir=${repoPath}`, 'show', `HEAD:vault/${filePath}`]);
   } catch {
     return null;
   }
@@ -349,21 +382,25 @@ export function writeVaultFile(repoPath, filePath, content, { commitMessage } = 
   const defaultBranch = getDefaultBranch(repoPath);
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-vault-write-'));
   try {
-    exec(`${GIT} --git-dir="${repoPath}" worktree add "${tmpDir}" ${defaultBranch}`);
+    git([`--git-dir=${repoPath}`, 'worktree', 'add', tmpDir, defaultBranch]);
     const fullPath = path.join(tmpDir, 'vault', filePath);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     fs.writeFileSync(fullPath, content);
-    exec(`${GIT} add -A`, { cwd: tmpDir });
+    git(['add', '-A'], { cwd: tmpDir });
     // Check if there are changes to commit
     try {
-      exec(`${GIT} diff --cached --quiet`, { cwd: tmpDir });
+      git(['diff', '--cached', '--quiet'], { cwd: tmpDir });
       // No changes — skip commit
     } catch {
       const msg = commitMessage || `Update vault/${filePath}`;
-      exec(`${GIT} -c user.name="Nebula" -c user.email="nebula@local" commit -m "${msg.replace(/"/g, '\\"')}"`, { cwd: tmpDir });
+      git([
+        '-c', 'user.name=Nebula',
+        '-c', 'user.email=nebula@local',
+        'commit', '-m', msg,
+      ], { cwd: tmpDir });
     }
   } finally {
-    try { exec(`${GIT} --git-dir="${repoPath}" worktree remove "${tmpDir}" --force`); } catch {}
+    try { git([`--git-dir=${repoPath}`, 'worktree', 'remove', tmpDir, '--force']); } catch {}
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 }
@@ -372,5 +409,8 @@ export function writeVaultFile(repoPath, filePath, content, { commitMessage } = 
  * Replace a remote URL on a bare repo (e.g., after authenticated clone).
  */
 export function setRemoteUrl(repoPath, remote, url) {
-  exec(`${GIT} --git-dir="${repoPath}" remote set-url ${remote} "${url}"`);
+  if (typeof remote !== 'string' || !/^[a-zA-Z0-9._-]+$/.test(remote) || remote.startsWith('-')) {
+    throw new Error(`Invalid remote name: "${remote}"`);
+  }
+  git([`--git-dir=${repoPath}`, 'remote', 'set-url', remote, url]);
 }
