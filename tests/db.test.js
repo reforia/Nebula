@@ -203,6 +203,67 @@ describe('Database layer', () => {
       run('DELETE FROM agents WHERE id = ?', [agentId]);
       assert.equal(getOne('SELECT COUNT(*) as c FROM tasks WHERE agent_id = ?', [agentId]).c, 0);
     });
+
+    it('rejects memory with nonexistent org_id', () => {
+      assert.throws(() => {
+        run(
+          "INSERT INTO memories (id, org_id, owner_type, owner_id, title, description, content) VALUES (?, 'no-such-org', 'agent', 'a', 't', 'd', 'c')",
+          [uid()]
+        );
+      }, /FOREIGN KEY/);
+    });
+
+    it('cascades memories when org is deleted', () => {
+      const ctx = createTestUserAndOrg('memorg');
+      const agentId = `mem-agent-${uid()}`;
+      run("INSERT INTO agents (id, org_id, name, session_id) VALUES (?, ?, ?, ?)",
+        [agentId, ctx.orgId, `MemBot-${uid()}`, `mem-sess-${uid()}`]);
+      run(
+        "INSERT INTO memories (id, org_id, owner_type, owner_id, title, description, content) VALUES (?, ?, 'agent', ?, 't', 'd', 'c')",
+        [uid(), ctx.orgId, agentId]
+      );
+      run('DELETE FROM organizations WHERE id = ?', [ctx.orgId]);
+      assert.equal(getOne('SELECT COUNT(*) as c FROM memories WHERE org_id = ?', [ctx.orgId]).c, 0);
+    });
+
+    it('trigger drops agent memories when agent is deleted', () => {
+      const agentId = `mem-trig-${uid()}`;
+      run("INSERT INTO agents (id, org_id, name, session_id) VALUES (?, ?, ?, ?)",
+        [agentId, orgId, `MemTrigBot-${uid()}`, `mt-sess-${uid()}`]);
+      run(
+        "INSERT INTO memories (id, org_id, owner_type, owner_id, title, description, content) VALUES (?, ?, 'agent', ?, 't', 'd', 'c')",
+        [uid(), orgId, agentId]
+      );
+      assert.equal(getOne('SELECT COUNT(*) as c FROM memories WHERE owner_id = ?', [agentId]).c, 1);
+      run('DELETE FROM agents WHERE id = ?', [agentId]);
+      assert.equal(getOne('SELECT COUNT(*) as c FROM memories WHERE owner_id = ?', [agentId]).c, 0);
+    });
+
+    it('usage_events agent_id is SET NULL on agent delete', () => {
+      const agentId = `ue-agent-${uid()}`;
+      run("INSERT INTO agents (id, org_id, name, session_id) VALUES (?, ?, ?, ?)",
+        [agentId, orgId, `UEBot-${uid()}`, `ue-sess-${uid()}`]);
+      const eventId = uid();
+      run(
+        "INSERT INTO usage_events (id, org_id, agent_id, backend, status) VALUES (?, ?, ?, 'claude-cli', 'success')",
+        [eventId, orgId, agentId]
+      );
+      run('DELETE FROM agents WHERE id = ?', [agentId]);
+      const ev = getOne('SELECT * FROM usage_events WHERE id = ?', [eventId]);
+      assert.ok(ev, 'usage event should survive agent delete');
+      assert.equal(ev.agent_id, null);
+    });
+
+    it('usage_events cascade on org delete', () => {
+      const ctx = createTestUserAndOrg('ueorg');
+      run(
+        "INSERT INTO usage_events (id, org_id, backend, status) VALUES (?, ?, 'claude-cli', 'success')",
+        [uid(), ctx.orgId]
+      );
+      assert.equal(getOne('SELECT COUNT(*) as c FROM usage_events WHERE org_id = ?', [ctx.orgId]).c, 1);
+      run('DELETE FROM organizations WHERE id = ?', [ctx.orgId]);
+      assert.equal(getOne('SELECT COUNT(*) as c FROM usage_events WHERE org_id = ?', [ctx.orgId]).c, 0);
+    });
   });
 
   describe('agents table constraints', () => {

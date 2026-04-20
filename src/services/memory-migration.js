@@ -30,7 +30,7 @@ function parseFrontmatter(content) {
 }
 
 /** Migrate a single agent's file-based memory to DB */
-function migrateAgent(agentId, memoryDir) {
+function migrateAgent(agentId, orgId, memoryDir) {
   const files = fs.readdirSync(memoryDir).filter(f => f.endsWith('.md') && f !== 'MEMORY.md');
   let count = 0;
 
@@ -66,8 +66,8 @@ function migrateAgent(agentId, memoryDir) {
 
     const id = generateId();
     run(
-      'INSERT INTO memories (id, owner_type, owner_id, title, description, content) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, 'agent', agentId, title, description, content]
+      'INSERT INTO memories (id, org_id, owner_type, owner_id, title, description, content) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, orgId, 'agent', agentId, title, description, content]
     );
     count++;
   }
@@ -96,10 +96,10 @@ export function migrateFileMemories() {
       if (!fs.existsSync(memoryDir) || fs.existsSync(backupDir)) continue;
 
       // Verify agent exists in DB
-      const agent = getOne('SELECT id FROM agents WHERE id = ?', [agentId]);
+      const agent = getOne('SELECT id, org_id FROM agents WHERE id = ?', [agentId]);
       if (!agent) continue;
 
-      const count = migrateAgent(agentId, memoryDir);
+      const count = migrateAgent(agentId, agent.org_id, memoryDir);
       if (count > 0) {
         rebuildIndex('agent', agentId);
         totalMigrated += count;

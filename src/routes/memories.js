@@ -81,8 +81,8 @@ agentMemoryRouter.post('/:agentId/memory', (req, res) => {
 
   const id = generateId();
   run(
-    'INSERT INTO memories (id, owner_type, owner_id, title, description, content) VALUES (?, ?, ?, ?, ?, ?)',
-    [id, 'agent', req.params.agentId, title.trim(), description.trim(), content.trim()]
+    'INSERT INTO memories (id, org_id, owner_type, owner_id, title, description, content) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [id, req.orgId, 'agent', req.params.agentId, title.trim(), description.trim(), content.trim()]
   );
   rebuildIndex('agent', req.params.agentId);
 
@@ -195,8 +195,8 @@ projectMemoryRouter.post('/:projectId/memory', (req, res) => {
 
   const id = generateId();
   run(
-    'INSERT INTO memories (id, owner_type, owner_id, title, description, content) VALUES (?, ?, ?, ?, ?, ?)',
-    [id, 'project', req.params.projectId, title.trim(), description.trim(), content.trim()]
+    'INSERT INTO memories (id, org_id, owner_type, owner_id, title, description, content) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [id, req.orgId, 'project', req.params.projectId, title.trim(), description.trim(), content.trim()]
   );
   rebuildIndex('project', req.params.projectId);
 
