@@ -1508,8 +1508,15 @@ Help the user complete the setup. Ask about your role if not set. Once you have 
     const abortController = new AbortController();
     this.abortControllers.set(contextKey, abortController);
 
+    // @mention pulls a target agent into the initiator's conversation. The
+    // executor runs in the target's own conversation (that's where the CLI
+    // session lives) but the typing bubble must render where the user is
+    // looking — the initiator's conversation. messages.js passes that as
+    // displayConversationId; fall back to conversation.id for normal sends
+    // and @notify where the bubble belongs in the target's own conversation.
+    const typingConversationId = options.displayConversationId || conversation.id;
     const typingInfo = {
-      agentId, orgId: agentOrgId, conversationId: conversation.id,
+      agentId, orgId: agentOrgId, conversationId: typingConversationId,
       projectId: options.projectId || null, branchName: options.branchName || null,
     };
     this.typingState.set(contextKey, typingInfo);
@@ -1614,7 +1621,7 @@ Help the user complete the setup. Ask about your role if not set. Once you have 
       this.abortControllers.delete(contextKey);
       this.typingState.delete(contextKey);
       this.emit('agent_typing', {
-        agentId, orgId: agentOrgId, conversationId: conversation.id, active: false,
+        agentId, orgId: agentOrgId, conversationId: typingConversationId, active: false,
         projectId: options.projectId || null, branchName: options.branchName || null,
       });
     }
