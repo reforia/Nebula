@@ -65,7 +65,7 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
         if (pendingConversationId && convs.some(c => c.id === pendingConversationId)) {
           setSelectedConversationId(pendingConversationId);
           loadMessages(selectedAgentId, pendingConversationId);
-          markRead(selectedAgentId, pendingConversationId).catch(() => {});
+          markRead(selectedAgentId, pendingConversationId).catch(e => console.warn('[chat] mark-read failed:', e));
           clearConversationUnread(pendingConversationId);
           send({ type: 'mark_read', agent_id: selectedAgentId });
           setPendingConversationId(null);
@@ -74,7 +74,7 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
           const latest = convs[0];
           setSelectedConversationId(latest.id);
           loadMessages(selectedAgentId, latest.id);
-          markRead(selectedAgentId, latest.id).catch(() => {});
+          markRead(selectedAgentId, latest.id).catch(e => console.warn('[chat] mark-read failed:', e));
           clearConversationUnread(latest.id);
           send({ type: 'mark_read', agent_id: selectedAgentId });
         }
@@ -92,7 +92,7 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
     clear();
     setSelectedConversationId(convId);
     loadMessages(selectedAgentId, convId);
-    markRead(selectedAgentId, convId).catch(() => {});
+    markRead(selectedAgentId, convId).catch(e => console.warn('[chat] mark-read failed:', e));
     clearConversationUnread(convId);
     send({ type: 'mark_read', agent_id: selectedAgentId });
   }, [selectedAgentId, selectedConversationId, clear, loadMessages, send]);
@@ -122,7 +122,7 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
           setTypingAgents(new Map());
           // Re-mark current conversation as read so badges clear after reconnect
           if (selectedAgentId) {
-            markRead(selectedAgentId, selectedConversationId || undefined).catch(() => {});
+            markRead(selectedAgentId, selectedConversationId || undefined).catch(e => console.warn('[chat] mark-read failed:', e));
             if (selectedConversationId) clearConversationUnread(selectedConversationId);
             send({ type: 'mark_read', agent_id: selectedAgentId });
           }
@@ -149,7 +149,7 @@ export default function AppShell({ onLogout }: { onLogout: () => void }) {
                 (msg.agent_id === selectedAgentId && !msg.message.conversation_id)) {
               addMessage(msg.message);
               if (selectedAgentId) {
-                markRead(selectedAgentId, selectedConversationId || undefined).catch(() => {});
+                markRead(selectedAgentId, selectedConversationId || undefined).catch(e => console.warn('[chat] mark-read failed:', e));
                 if (selectedConversationId) clearConversationUnread(selectedConversationId);
                 send({ type: 'mark_read', agent_id: selectedAgentId });
               }

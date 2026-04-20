@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { getLoginUrl, completeSetup, getRuntimes, detectRuntimes, createAdmin, getSetupStatus, RuntimeInfo, listTemplates, TemplateSummary } from '../api/client';
 
 type Step = 'auth' | 'runtimes' | 'template' | 'complete';
@@ -13,6 +14,7 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
   const [step, setStep] = useState<Step>(initialStep);
   const [error, setError] = useState('');
   const { user, refresh } = useAuth();
+  const { reportError } = useToast();
   const [authProvider, setAuthProvider] = useState<'local' | 'enigma'>('local');
 
   // Step 1 (local): Admin account form
@@ -45,8 +47,8 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
   const availableRuntimes = runtimes.filter(r => r.available);
 
   useEffect(() => {
-    getSetupStatus().then(s => setAuthProvider(s.authProvider)).catch(() => {});
-  }, []);
+    getSetupStatus().then(s => setAuthProvider(s.authProvider)).catch(e => reportError(e, 'Failed to check setup status'));
+  }, [reportError]);
 
   // Auto-detect runtimes when entering step 2
   useEffect(() => {
@@ -57,10 +59,10 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
           setRuntimes(r.runtimes);
           setDefaultRuntime(r.default);
         })
-        .catch(() => {})
+        .catch(e => reportError(e, 'Failed to detect runtimes'))
         .finally(() => setDetecting(false));
     }
-  }, [step]);
+  }, [step, reportError]);
 
   // Load templates when entering step 3
   useEffect(() => {
@@ -68,10 +70,10 @@ export default function Setup({ initialStep = 'auth', onComplete }: Props) {
       setLoadingTemplates(true);
       listTemplates()
         .then(t => setTemplates(t))
-        .catch(() => {})
+        .catch(e => reportError(e, 'Failed to load templates'))
         .finally(() => setLoadingTemplates(false));
     }
-  }, [step]);
+  }, [step, reportError]);
 
   // --- Sign in with Platform (enigma) ---
   const [loginLoading, setLoginLoading] = useState(false);

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgentSecret } from '../api/client';
+import { useToast } from '../contexts/ToastContext';
 
 interface Props {
   load: () => Promise<AgentSecret[]>;
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export default function SecretsList({ load, create, remove }: Props) {
+  const { reportError } = useToast();
   const [secrets, setSecrets] = useState<AgentSecret[]>([]);
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
@@ -18,7 +20,7 @@ export default function SecretsList({ load, create, remove }: Props) {
   const loadRef = useRef(load);
   loadRef.current = load;
 
-  const refresh = () => { loadRef.current().then(setSecrets).catch(() => {}); };
+  const refresh = () => { loadRef.current().then(setSecrets).catch(e => reportError(e, 'Failed to load secrets')); };
   useEffect(() => { refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAdd = async () => {

@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { Agent, Message, cancelAgent } from '../api/client';
+import { useToast } from '../contexts/ToastContext';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 
@@ -35,6 +36,7 @@ export default function ChatPanel({
   cancelAgentId, disabled, disconnected, draft, onDraftChange, resetKey, hideNotify,
   scrollToMessageId, onScrollToComplete,
 }: Props) {
+  const { reportError } = useToast();
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -239,7 +241,7 @@ export default function ChatPanel({
       )}
       <MessageInput
         onSend={handleSend}
-        onCancel={cancelAgentId ? () => cancelAgent(cancelAgentId).catch(() => {}) : undefined}
+        onCancel={cancelAgentId ? () => cancelAgent(cancelAgentId).catch(e => reportError(e, 'Failed to cancel agent')) : undefined}
         disabled={disabled || disconnected}
         isTyping={isTyping}
         agents={agents}

@@ -10,6 +10,7 @@ import ToolsPicker from './ToolsPicker';
 import ModelPicker from './ModelPicker';
 import RuntimeSelector, { useRuntimes } from './RuntimeSelector';
 import SecretsList from './SecretsList';
+import { useToast } from '../contexts/ToastContext';
 
 interface Props {
   agent: Agent;
@@ -20,6 +21,7 @@ interface Props {
 }
 
 export default function AgentSettings({ agent, conversationId, onClose, onUpdated, onDeleted }: Props) {
+  const { reportError } = useToast();
   const [name, setName] = useState(agent.name);
   const [role, setRole] = useState(agent.role);
   const [emoji, setEmoji] = useState(agent.emoji);
@@ -55,7 +57,7 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
   const [editASecretValue, setEditASecretValue] = useState('');
   const [editASecretSaving, setEditASecretSaving] = useState(false);
 
-  const refreshSecrets = () => { getAgentSecrets(agent.id).then(setAgentSecretsList).catch(() => {}); };
+  const refreshSecrets = () => { getAgentSecrets(agent.id).then(setAgentSecretsList).catch(e => reportError(e, 'Failed to load agent secrets')); };
 
   useEffect(() => {
     getAgent(agent.id).then(a => {
@@ -64,14 +66,15 @@ export default function AgentSettings({ agent, conversationId, onClose, onUpdate
       setHasRemoteToken(!!a.has_remote_token);
       setRemoteConnected(a.remote_connected ?? null);
       try { setNasPaths(JSON.parse(a.nas_paths || '[]')); } catch { setNasPaths([]); }
-    }).catch(() => {});
+    }).catch(e => reportError(e, 'Failed to load agent'));
     getSettings().then(s => {
       setOrgDefaultTimeoutMin(Math.round(parseInt(s.default_timeout_ms || '600000') / 60000));
       setOrgDefaultRecoveryBudget(parseInt(s.recovery_token_budget || '25000') || 25000);
       setOrgDefaultMentionMessages(parseInt(s.mention_context_messages || '10') || 10);
       setOrgDefaultMentionChars(parseInt(s.mention_context_chars || '0') || 0);
-    }).catch(() => {});
+    }).catch(e => reportError(e, 'Failed to load settings'));
     refreshSecrets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent.id]);
 
   const handleSave = async () => {

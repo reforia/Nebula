@@ -67,7 +67,7 @@ export default function MessageBubble({ message, ownerAgentId, agents, highlight
             <button
               onClick={() => {
                 if (navigator.clipboard?.writeText) {
-                  navigator.clipboard.writeText(message.content).catch(() => {});
+                  navigator.clipboard.writeText(message.content).catch(e => console.warn('[clipboard] copy failed:', e));
                 } else {
                   // Fallback for non-secure contexts (HTTP on LAN)
                   const ta = document.createElement('textarea');

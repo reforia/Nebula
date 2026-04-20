@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { MemoryMeta, Memory, getAgentMemories, getAgentMemory, createAgentMemory, updateAgentMemory, deleteAgentMemory, searchMemories, MemorySearchResult } from '../api/client';
+import { useToast } from '../contexts/ToastContext';
 
 interface Props {
   agentId: string;
 }
 
 export default function MemoryEditor({ agentId }: Props) {
+  const { reportError } = useToast();
   const [memories, setMemories] = useState<MemoryMeta[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedMemory, setExpandedMemory] = useState<Memory | null>(null);
@@ -24,7 +26,7 @@ export default function MemoryEditor({ agentId }: Props) {
   const [searching, setSearching] = useState(false);
 
   const refresh = () => {
-    getAgentMemories(agentId).then(setMemories).catch(() => {});
+    getAgentMemories(agentId).then(setMemories).catch(e => reportError(e, 'Failed to load memories'));
   };
 
   useEffect(() => { refresh(); }, [agentId]);

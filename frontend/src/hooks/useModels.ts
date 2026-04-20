@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getModels, ModelInfo } from '../api/client';
+import { reportErrorGlobal } from '../contexts/ToastContext';
 
 let cachedModels: ModelInfo[] | null = null;
 let listeners: (() => void)[] = [];
@@ -15,7 +16,7 @@ export function useModels() {
   const refresh = useCallback(() => {
     getModels()
       .then(m => { cachedModels = m; setModels(m); })
-      .catch(() => {});
+      .catch(e => reportErrorGlobal(e, 'Failed to load models'));
   }, []);
 
   useEffect(() => {
