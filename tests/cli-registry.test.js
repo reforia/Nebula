@@ -341,6 +341,20 @@ describe('CodexBackend adapter (tested against codex-cli 0.118.0)', async () => 
     cx.prepareEnvironment({ systemPrompt: '', agentDir: tmp });
     assert.equal(fs.existsSync(path.join(tmp, 'AGENTS.md')), false);
   });
+
+  it('parseOutput extracts text, thread_id and usage from codex-cli 0.118.0 stream-json', () => {
+    const stream = [
+      '{"type":"thread.started","thread_id":"019db0e5-aeb1-7ae1-897a-c5d27a84f970"}',
+      '{"type":"turn.started"}',
+      '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Hello from Codex."}}',
+      '{"type":"turn.completed","usage":{"input_tokens":43897,"cached_input_tokens":20864,"output_tokens":79}}',
+    ].join('\n');
+    const out = cx.parseOutput(stream, Date.now());
+    assert.equal(out.result, 'Hello from Codex.');
+    assert.equal(out.cli_session_id, '019db0e5-aeb1-7ae1-897a-c5d27a84f970');
+    assert.equal(out.usage.input_tokens, 43897);
+    assert.equal(out.usage.output_tokens, 79);
+  });
 });
 
 describe('GeminiBackend adapter (tested against gemini-cli 0.36.0)', async () => {

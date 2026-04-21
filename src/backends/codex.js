@@ -90,7 +90,12 @@ export class CodexBackend extends ExecutionBackend {
         cliSessionId = event.thread_id;
       }
 
-      // Extract text from item events
+      // codex-cli 0.118.0: agent messages arrive as
+      //   { type: "item.completed", item: { type: "agent_message", text: "..." } }
+      // Earlier versions used a content-block array — keep that path as fallback.
+      if (event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') {
+        resultText += event.item.text;
+      }
       if (event.type?.startsWith('item.') && event.item?.content) {
         for (const block of (Array.isArray(event.item.content) ? event.item.content : [])) {
           if (block.type === 'text' || block.type === 'output_text') {
