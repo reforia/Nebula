@@ -266,7 +266,11 @@ export class ExecutionBackend {
 
       const proc = pty.spawn(binary, args, {
         cwd,
-        cols: 200,
+        // cols must be wide enough that CLIs streaming long JSON events don't
+        // wrap mid-token — OpenCode text payloads can exceed 1 KB. If the PTY
+        // hard-wraps, processJsonLines drops continuation lines that don't
+        // start with '{' and the resulting parsed output is a mangled tail.
+        cols: 10000,
         rows: 50,
         env: {
           ...process.env,
