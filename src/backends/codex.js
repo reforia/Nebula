@@ -47,35 +47,34 @@ export class CodexBackend extends ExecutionBackend {
     }
   }
 
-  buildArgs({ prompt, systemPrompt, agent, conversation, options }) {
-    const args = [
-      'exec',
+  buildArgs({ prompt, agent, conversation, options }) {
+    // System prompt is written to AGENTS.md in the working dir by
+    // prepareEnvironment — Codex has no --system-prompt flag.
+    // Verified against codex-cli 0.118.0.
+    const flags = [
       '--json',
       '--model', agent.model || 'gpt-5.4',
       '--dangerously-bypass-approvals-and-sandbox',
     ];
 
-    if (systemPrompt) {
-      args.push('--append-system-prompt', systemPrompt);
+    for (const img of (options.images || [])) {
+      flags.push('-i', img);
     }
 
-    // Session handling — resume with CLI's own thread_id if available
+    // Resume is a sub-subcommand of exec (`codex exec resume <id> [PROMPT]`).
+    // Flags bind to the innermost subcommand — put them after `resume`.
     if (conversation.session_initialized && conversation.session_id) {
-      args.push('resume', conversation.session_id);
+      return ['exec', 'resume', ...flags, conversation.session_id, prompt];
     }
-
-    // Images
-    if (options.images && options.images.length > 0) {
-      args.push('--images', options.images.join(','));
-    }
-
-    args.push(prompt);
-    return args;
+    return ['exec', ...flags, prompt];
   }
 
-  prepareEnvironment({ agentDir, options }) {
-    // MCP config — Codex reads from its own config, write if servers configured
-    // For now, MCP servers are passed via the system prompt instructions
+  prepareEnvironment({ systemPrompt, agentDir }) {
+    // Codex reads its system prompt from AGENTS.md in the working directory.
+    // No dedicated CLI flag (confirmed in codex-cli 0.118.0).
+    if (systemPrompt) {
+      fs.writeFileSync(path.join(agentDir, 'AGENTS.md'), systemPrompt);
+    }
   }
 
   parseOutput(rawOutput, startTime) {
@@ -117,8 +116,8 @@ export class CodexBackend extends ExecutionBackend {
     const binary = this.binaryPath || this.binaryNames[0];
     const startTime = Date.now();
 
-    this.prepareEnvironment({ agentDir, options });
-    const args = this.buildArgs({ prompt, systemPrompt, agent, conversation, options });
+    this.prepareEnvironment({ systemPrompt, agentDir });
+    const args = this.buildArgs({ prompt, agent, conversation, options });
 
     return this._spawn({
       binary,

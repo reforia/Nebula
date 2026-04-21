@@ -286,6 +286,63 @@ describe('OpenCodeBackend adapter properties', async () => {
   });
 });
 
+describe('CodexBackend adapter (tested against codex-cli 0.118.0)', async () => {
+  const { CodexBackend } = await import('../src/backends/codex.js');
+  const cx = new CodexBackend();
+
+  it('buildArgs omits --append-system-prompt and puts flags after `exec`', () => {
+    const args = cx.buildArgs({
+      prompt: 'hi',
+      agent: { model: 'gpt-5.4' },
+      conversation: {},
+      options: {},
+    });
+    assert.deepEqual(args, [
+      'exec', '--json', '--model', 'gpt-5.4',
+      '--dangerously-bypass-approvals-and-sandbox', 'hi',
+    ]);
+    assert.ok(!args.includes('--append-system-prompt'));
+  });
+
+  it('buildArgs for resume places session id after `exec resume` flags, before prompt', () => {
+    const args = cx.buildArgs({
+      prompt: 'follow up',
+      agent: { model: 'gpt-5.4' },
+      conversation: { session_initialized: true, session_id: 'abc-123' },
+      options: {},
+    });
+    assert.deepEqual(args, [
+      'exec', 'resume', '--json', '--model', 'gpt-5.4',
+      '--dangerously-bypass-approvals-and-sandbox', 'abc-123', 'follow up',
+    ]);
+  });
+
+  it('buildArgs emits repeatable -i for each image (not --images CSV)', () => {
+    const args = cx.buildArgs({
+      prompt: 'p',
+      agent: { model: 'gpt-5.4' },
+      conversation: {},
+      options: { images: ['/a.png', '/b.png'] },
+    });
+    assert.ok(!args.includes('--images'));
+    const imgFlags = args.reduce((acc, v, i) => (v === '-i' ? [...acc, args[i + 1]] : acc), []);
+    assert.deepEqual(imgFlags, ['/a.png', '/b.png']);
+  });
+
+  it('prepareEnvironment writes systemPrompt to AGENTS.md in agent dir', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-codex-env-'));
+    cx.prepareEnvironment({ systemPrompt: 'you are a helpful agent', agentDir: tmp });
+    const content = fs.readFileSync(path.join(tmp, 'AGENTS.md'), 'utf8');
+    assert.equal(content, 'you are a helpful agent');
+  });
+
+  it('prepareEnvironment skips AGENTS.md when systemPrompt is empty', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-codex-env-'));
+    cx.prepareEnvironment({ systemPrompt: '', agentDir: tmp });
+    assert.equal(fs.existsSync(path.join(tmp, 'AGENTS.md')), false);
+  });
+});
+
 describe('Registry integration (via backends/index.js)', async () => {
   const { registry, getBackend, listBackends, listAllModels } = await import('../src/backends/index.js');
 
