@@ -87,7 +87,7 @@ export default function ModelPicker({ model, onChange, runtimeId, className }: P
           type="text"
           value={model}
           onChange={e => onChange(e.target.value)}
-          placeholder="e.g. anthropic/claude-sonnet-4-6"
+          placeholder="e.g. anthropic/claude-sonnet-4-6 or openrouter/deepseek/deepseek-v3.2"
           className={inputClass}
         />
         {hasModels && (
