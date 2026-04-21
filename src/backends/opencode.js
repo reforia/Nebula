@@ -101,6 +101,20 @@ export class OpenCodeBackend extends ExecutionBackend {
       '$schema': 'https://opencode.ai/config.json',
     };
 
+    // Register the agent's model so OpenCode accepts it even when its baked-in
+    // catalog is behind (e.g. newly released OpenRouter models). An empty
+    // entry opts into provider defaults without overriding anything.
+    const modelId = this.mapModelId(agent.model || '');
+    const firstSlash = modelId.indexOf('/');
+    if (firstSlash > 0) {
+      const providerSlug = modelId.slice(0, firstSlash);
+      const modelKey = modelId.slice(firstSlash + 1);
+      config.provider = config.provider || {};
+      config.provider[providerSlug] = config.provider[providerSlug] || {};
+      config.provider[providerSlug].models = config.provider[providerSlug].models || {};
+      config.provider[providerSlug].models[modelKey] = config.provider[providerSlug].models[modelKey] || {};
+    }
+
     // MCP servers (user-configured only — no auto-injection)
     if (mcpServers.length > 0) {
       config.mcp = {};

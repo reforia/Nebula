@@ -249,6 +249,27 @@ describe('OpenCodeBackend adapter properties', async () => {
     const models = oc.listModels();
     assert.strictEqual(models.length, 0);
   });
+
+  it('_writeConfig registers 2-part model under provider.models (bypasses stale catalog)', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-oc-cfg-'));
+    oc._writeConfig({ model: 'claude-sonnet-4-6', allowed_tools: '' }, tmp, []);
+    const cfg = JSON.parse(fs.readFileSync(path.join(tmp, 'opencode.json'), 'utf8'));
+    assert.ok(cfg.provider?.anthropic?.models?.['claude-sonnet-4-6']);
+  });
+
+  it('_writeConfig registers 3-part OpenRouter model under its provider slug', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-oc-cfg-'));
+    oc._writeConfig({ model: 'openrouter/deepseek/deepseek-v3.2', allowed_tools: '' }, tmp, []);
+    const cfg = JSON.parse(fs.readFileSync(path.join(tmp, 'opencode.json'), 'utf8'));
+    assert.ok(cfg.provider?.openrouter?.models?.['deepseek/deepseek-v3.2']);
+  });
+
+  it('_writeConfig leaves provider block out when model has no slash', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-oc-cfg-'));
+    oc._writeConfig({ model: 'bare-model', allowed_tools: '' }, tmp, []);
+    const cfg = JSON.parse(fs.readFileSync(path.join(tmp, 'opencode.json'), 'utf8'));
+    assert.strictEqual(cfg.provider, undefined);
+  });
 });
 
 describe('Registry integration (via backends/index.js)', async () => {
