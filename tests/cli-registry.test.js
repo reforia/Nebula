@@ -374,6 +374,20 @@ describe('GeminiBackend adapter (tested against gemini-cli 0.36.0)', async () =>
     assert.equal(fs.existsSync(path.join(tmp, 'GEMINI.md')), false);
   });
 
+  it('parseOutput concatenates Gemini delta chunks (0.36.0 emits 1-N delta events)', () => {
+    const stream = [
+      '{"type":"init","timestamp":"2026-04-21T17:57:00.615Z","session_id":"abc","model":"gemini-2.5-flash"}',
+      '{"type":"message","role":"assistant","content":"That was the raw","delta":true}',
+      '{"type":"message","role":"assistant","content":" output — final answer.","delta":true}',
+      '{"type":"result","status":"success","stats":{"input_tokens":1000,"output_tokens":10}}',
+    ].join('\n');
+    const out = gm.parseOutput(stream, Date.now());
+    assert.equal(out.result, 'That was the raw output — final answer.');
+    assert.equal(out.cli_session_id, 'abc');
+    assert.equal(out.usage.input_tokens, 1000);
+    assert.equal(out.usage.output_tokens, 10);
+  });
+
   it('buildArgs does not include --system-instruction', () => {
     const args = gm.buildArgs({
       prompt: 'hi',

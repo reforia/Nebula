@@ -86,12 +86,16 @@ export class GeminiBackend extends ExecutionBackend {
         cliSessionId = event.session_id;
       }
 
-      // Message events (assistant text)
+      // Assistant messages — Gemini CLI 0.36.0 emits these as streaming
+      // delta chunks (event.delta === true, each event.content holds one
+      // slice of the response). Concatenate rather than overwrite, else the
+      // stored text is just the final chunk and looks truncated mid-sentence.
       if (event.type === 'message' && event.role === 'assistant') {
-        if (typeof event.content === 'string') resultText = event.content;
-        else if (Array.isArray(event.content)) {
+        if (typeof event.content === 'string') {
+          resultText += event.content;
+        } else if (Array.isArray(event.content)) {
           for (const b of event.content) {
-            if (b.type === 'text') resultText = b.text;
+            if (b.type === 'text') resultText += b.text;
           }
         }
       }
