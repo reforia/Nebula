@@ -64,11 +64,12 @@ export class GeminiBackend extends ExecutionBackend {
   }
 
   prepareEnvironment({ systemPrompt, agentDir }) {
-    // Gemini uses --system-instruction <path> for system prompt injection
-    // Write system prompt (with inlined skills) to a file
-    const geminiDir = path.join(agentDir, '.gemini');
-    fs.mkdirSync(geminiDir, { recursive: true });
-    fs.writeFileSync(path.join(geminiDir, 'system.md'), systemPrompt || '');
+    // Gemini CLI has no --system-instruction flag — it reads GEMINI.md
+    // from the working directory (hierarchy scan, same convention as
+    // CLAUDE.md). Verified against gemini-cli 0.36.0.
+    if (systemPrompt) {
+      fs.writeFileSync(path.join(agentDir, 'GEMINI.md'), systemPrompt);
+    }
   }
 
   parseOutput(rawOutput, startTime) {
@@ -140,12 +141,6 @@ export class GeminiBackend extends ExecutionBackend {
 
     this.prepareEnvironment({ systemPrompt, agentDir });
     const args = this.buildArgs({ prompt, agent, conversation, options });
-
-    // Add system instruction file path
-    const systemFile = path.join(agentDir, '.gemini', 'system.md');
-    if (fs.existsSync(systemFile)) {
-      args.unshift('--system-instruction', systemFile);
-    }
 
     return this._spawn({
       binary,

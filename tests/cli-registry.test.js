@@ -343,6 +343,38 @@ describe('CodexBackend adapter (tested against codex-cli 0.118.0)', async () => 
   });
 });
 
+describe('GeminiBackend adapter (tested against gemini-cli 0.36.0)', async () => {
+  const { GeminiBackend } = await import('../src/backends/gemini.js');
+  const gm = new GeminiBackend();
+
+  it('prepareEnvironment writes systemPrompt to GEMINI.md (no --system-instruction flag exists)', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-gemini-env-'));
+    gm.prepareEnvironment({ systemPrompt: 'you are gemini', agentDir: tmp });
+    const content = fs.readFileSync(path.join(tmp, 'GEMINI.md'), 'utf8');
+    assert.equal(content, 'you are gemini');
+  });
+
+  it('prepareEnvironment skips GEMINI.md when systemPrompt is empty', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-gemini-env-'));
+    gm.prepareEnvironment({ systemPrompt: '', agentDir: tmp });
+    assert.equal(fs.existsSync(path.join(tmp, 'GEMINI.md')), false);
+  });
+
+  it('buildArgs does not include --system-instruction', () => {
+    const args = gm.buildArgs({
+      prompt: 'hi',
+      agent: { model: 'gemini-2.5-flash' },
+      conversation: {},
+      options: {},
+    });
+    assert.ok(!args.includes('--system-instruction'));
+    assert.ok(args.includes('-m'));
+    assert.ok(args.includes('gemini-2.5-flash'));
+    assert.ok(args.includes('-p'));
+    assert.ok(args.includes('hi'));
+  });
+});
+
 describe('Registry integration (via backends/index.js)', async () => {
   const { registry, getBackend, listBackends, listAllModels } = await import('../src/backends/index.js');
 
