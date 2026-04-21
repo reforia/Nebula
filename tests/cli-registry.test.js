@@ -271,7 +271,7 @@ describe('OpenCodeBackend adapter properties', async () => {
     assert.strictEqual(cfg.provider, undefined);
   });
 
-  it('parseOutput extracts text, usage and cost from OpenCode 1.4.x nested "part" events', () => {
+  it('parseOutput extracts text, usage and cost from OpenCode 1.4.x nested "part" events (tested against 1.4.3)', () => {
     const stream = [
       '{"type":"step_start","timestamp":1,"sessionID":"ses_abc","part":{"id":"prt_1","messageID":"msg_1","sessionID":"ses_abc","type":"step-start"}}',
       '{"type":"text","timestamp":2,"sessionID":"ses_abc","part":{"id":"prt_2","messageID":"msg_1","sessionID":"ses_abc","type":"text","text":"Hi there — I\'m back online."}}',
