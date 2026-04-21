@@ -270,6 +270,20 @@ describe('OpenCodeBackend adapter properties', async () => {
     const cfg = JSON.parse(fs.readFileSync(path.join(tmp, 'opencode.json'), 'utf8'));
     assert.strictEqual(cfg.provider, undefined);
   });
+
+  it('parseOutput extracts text, usage and cost from OpenCode 1.4.x nested "part" events', () => {
+    const stream = [
+      '{"type":"step_start","timestamp":1,"sessionID":"ses_abc","part":{"id":"prt_1","messageID":"msg_1","sessionID":"ses_abc","type":"step-start"}}',
+      '{"type":"text","timestamp":2,"sessionID":"ses_abc","part":{"id":"prt_2","messageID":"msg_1","sessionID":"ses_abc","type":"text","text":"Hi there — I\'m back online."}}',
+      '{"type":"step_finish","timestamp":3,"sessionID":"ses_abc","part":{"id":"prt_3","reason":"stop","messageID":"msg_1","sessionID":"ses_abc","type":"step-finish","tokens":{"total":20543,"input":18571,"output":116,"reasoning":0,"cache":{"write":0,"read":1856}},"cost":0.00524628}}',
+    ].join('\n');
+    const out = oc.parseOutput(stream, Date.now());
+    assert.equal(out.result, "Hi there — I'm back online.");
+    assert.equal(out.usage.input_tokens, 18571);
+    assert.equal(out.usage.output_tokens, 116);
+    assert.equal(out.total_cost_usd, 0.00524628);
+    assert.equal(out.cli_session_id, 'ses_abc');
+  });
 });
 
 describe('Registry integration (via backends/index.js)', async () => {

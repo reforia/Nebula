@@ -200,9 +200,25 @@ export class OpenCodeBackend extends ExecutionBackend {
         usage.output_tokens += event.usage.output_tokens || event.usage.completion_tokens || 0;
       }
       if (event.cost !== undefined) cost = event.cost;
+
+      // OpenCode 1.4.x wraps stream payloads in a "part" object. Text, tokens
+      // and cost live under event.part.{text,tokens,cost}; session id moves to
+      // event.sessionID (camelCase) and event.part.sessionID.
+      if (event.type === 'text' && typeof event.part?.text === 'string') {
+        resultText += event.part.text;
+      }
+      if (event.type === 'step_finish' && event.part?.tokens) {
+        const t = event.part.tokens;
+        usage.input_tokens += t.input || 0;
+        usage.output_tokens += t.output || 0;
+      }
+      if (event.type === 'step_finish' && typeof event.part?.cost === 'number') {
+        cost += event.part.cost;
+      }
+
       // Capture session ID from any event that has one
-      if (!cliSessionId && (event.session_id || event.session)) {
-        cliSessionId = event.session_id || event.session;
+      if (!cliSessionId && (event.session_id || event.session || event.sessionID)) {
+        cliSessionId = event.session_id || event.session || event.sessionID;
       }
     };
 
