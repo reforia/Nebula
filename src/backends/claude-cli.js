@@ -4,6 +4,7 @@ import { execSync } from 'child_process';
 import { ExecutionBackend } from './base.js';
 import { orgPath } from '../db.js';
 import { processJsonLines } from './parse-helpers.js';
+import { listModelsFor } from './model-catalog.js';
 
 export class ClaudeCLIBackend extends ExecutionBackend {
   constructor() {
@@ -30,12 +31,11 @@ export class ClaudeCLIBackend extends ExecutionBackend {
     this.authDescription = 'Interactive login via Anthropic account. Run once per machine.';
   }
 
+  // Suggestion list loaded from src/backends/models.json — edit that file to
+  // bump model IDs without diving through adapter code. The picker also
+  // exposes a "Custom" entry for anything not in the catalog.
   listModels() {
-    return [
-      { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', backend: 'claude-cli' },
-      { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', backend: 'claude-cli' },
-      { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', backend: 'claude-cli' },
-    ];
+    return listModelsFor(this.cliId);
   }
 
   buildArgs({ prompt, systemPrompt, agent, conversation, options }) {

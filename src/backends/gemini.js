@@ -3,6 +3,7 @@ import fs from 'fs';
 import { execSync } from 'child_process';
 import { ExecutionBackend } from './base.js';
 import { processJsonLines } from './parse-helpers.js';
+import { listModelsFor } from './model-catalog.js';
 
 export class GeminiBackend extends ExecutionBackend {
   constructor() {
@@ -28,12 +29,11 @@ export class GeminiBackend extends ExecutionBackend {
     this.authDescription = 'Google OAuth on first run (free: 1000 req/day), or set GEMINI_API_KEY env var.';
   }
 
+  // Suggestion list loaded from src/backends/models.json — see Claude adapter
+  // for rationale. "Custom" entry in the picker handles anything not listed
+  // (e.g. gemini-3-flash-preview).
   listModels() {
-    return [
-      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'google', backend: 'gemini' },
-      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'google', backend: 'gemini' },
-      { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', provider: 'google', backend: 'gemini' },
-    ];
+    return listModelsFor(this.cliId);
   }
 
   checkAuth() {

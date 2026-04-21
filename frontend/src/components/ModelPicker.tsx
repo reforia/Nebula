@@ -54,12 +54,14 @@ export default function ModelPicker({ model, onChange, runtimeId, className }: P
     }
   }, [runtimeId, models]);
 
-  // If loaded model isn't in the list and runtime accepts custom models, enter custom mode
+  // If the loaded model isn't in the dropdown, drop into custom-input mode so
+  // the picker shows the real value instead of silently swapping to the first
+  // known option.
   useEffect(() => {
-    if (model && models.length > 0 && !models.some(m => m.id === model) && acceptsAnyModel) {
+    if (model && models.length > 0 && !models.some(m => m.id === model)) {
       setCustomMode(true);
     }
-  }, [model, models, acceptsAnyModel]);
+  }, [model, models]);
 
   const grouped = useMemo(() => {
     const groups: Record<string, typeof models> = {};
@@ -79,15 +81,18 @@ export default function ModelPicker({ model, onChange, runtimeId, className }: P
     return <div className={`${inputClass} animate-pulse h-[38px]`} />;
   }
 
-  // Custom text input mode (user explicitly chose "Enter model ID..." or runtime accepts any model with no known list)
+  // Custom text input mode (user explicitly chose "Enter model ID..." or runtime has no known list)
   if (customMode || (!hasModels && acceptsAnyModel && rtInfo)) {
+    const hint = prefixes.length > 0
+      ? `Model ID (must start with ${prefixes.join(' / ')})`
+      : 'e.g. anthropic/claude-sonnet-4-6 or openrouter/deepseek/deepseek-v3.2';
     return (
       <div>
         <input
           type="text"
           value={model}
           onChange={e => onChange(e.target.value)}
-          placeholder="e.g. anthropic/claude-sonnet-4-6 or openrouter/deepseek/deepseek-v3.2"
+          placeholder={hint}
           className={inputClass}
         />
         {hasModels && (
@@ -123,11 +128,9 @@ export default function ModelPicker({ model, onChange, runtimeId, className }: P
           ))}
         </optgroup>
       ))}
-      {acceptsAnyModel && (
-        <optgroup label="Custom">
-          <option value="__custom__">Enter model ID...</option>
-        </optgroup>
-      )}
+      <optgroup label="Custom">
+        <option value="__custom__">Enter model ID…</option>
+      </optgroup>
     </select>
   );
 }

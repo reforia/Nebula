@@ -1,0 +1,20 @@
+{
+  "_comment": "Suggested quick-pick models per CLI backend. The dropdown also exposes a 'Custom' entry that accepts any model ID the CLI understands, so this list doesn't need to be exhaustive — it just seeds the UI. Providers deprecate IDs regularly; update this file when that happens.",
+  "claude-cli": [
+    { "id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6" },
+    { "id": "claude-opus-4-7", "name": "Claude Opus 4.7" },
+    { "id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5" }
+  ],
+  "codex": [
+    { "id": "gpt-5.4", "name": "GPT-5.4", "provider": "openai" },
+    { "id": "gpt-5.4-mini", "name": "GPT-5.4 Mini", "provider": "openai" },
+    { "id": "gpt-5.3-codex", "name": "GPT-5.3 Codex", "provider": "openai" },
+    { "id": "o4-mini", "name": "o4 Mini", "provider": "openai" }
+  ],
+  "gemini": [
+    { "id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro", "provider": "google" },
+    { "id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "provider": "google" },
+    { "id": "gemini-2.5-flash-lite", "name": "Gemini 2.5 Flash Lite", "provider": "google" }
+  ],
+  "opencode": []
+}

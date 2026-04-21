@@ -389,6 +389,29 @@ describe('GeminiBackend adapter (tested against gemini-cli 0.36.0)', async () =>
   });
 });
 
+describe('Model catalog (src/backends/models.json)', async () => {
+  const { listModelsFor, _resetCatalogCacheForTest } = await import('../src/backends/model-catalog.js');
+
+  it('returns suggestion lists for each backend from the JSON catalog', () => {
+    _resetCatalogCacheForTest();
+    const claude = listModelsFor('claude-cli');
+    assert.ok(claude.length >= 1);
+    assert.ok(claude.every(m => m.backend === 'claude-cli'));
+    assert.ok(claude.some(m => m.id === 'claude-opus-4-7'));
+  });
+
+  it('returns empty list for unknown backend', () => {
+    assert.deepEqual(listModelsFor('does-not-exist'), []);
+  });
+
+  it('tags every entry with its backend id (so the UI picker can filter)', () => {
+    for (const id of ['claude-cli', 'codex', 'gemini']) {
+      const list = listModelsFor(id);
+      assert.ok(list.every(m => m.backend === id), `${id} entries missing backend tag`);
+    }
+  });
+});
+
 describe('Registry integration (via backends/index.js)', async () => {
   const { registry, getBackend, listBackends, listAllModels } = await import('../src/backends/index.js');
 

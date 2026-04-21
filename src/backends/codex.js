@@ -3,6 +3,7 @@ import fs from 'fs';
 import { execSync } from 'child_process';
 import { ExecutionBackend } from './base.js';
 import { processJsonLines } from './parse-helpers.js';
+import { listModelsFor } from './model-catalog.js';
 
 export class CodexBackend extends ExecutionBackend {
   constructor() {
@@ -28,13 +29,10 @@ export class CodexBackend extends ExecutionBackend {
     this.authDescription = 'OAuth via ChatGPT account, or pipe API key: printenv OPENAI_API_KEY | codex login --with-api-key';
   }
 
+  // Suggestion list loaded from src/backends/models.json — see Claude adapter
+  // for rationale. "Custom" entry in the picker handles anything not listed.
   listModels() {
-    return [
-      { id: 'gpt-5.4', name: 'GPT-5.4', provider: 'openai', backend: 'codex' },
-      { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini', provider: 'openai', backend: 'codex' },
-      { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', provider: 'openai', backend: 'codex' },
-      { id: 'o4-mini', name: 'o4 Mini', provider: 'openai', backend: 'codex' },
-    ];
+    return listModelsFor(this.cliId);
   }
 
   checkAuth() {
