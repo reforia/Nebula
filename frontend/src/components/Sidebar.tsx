@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Agent, Project, SearchResult, searchMessages } from '../api/client';
 import OrgSwitcher from './OrgSwitcher';
 import FeedbackModal from './FeedbackModal';
+import LanguageSwitcher from './LanguageSwitcher';
 import { useAuth } from '../contexts/AuthContext';
 import { agentColor } from '../utils/agentColor';
 
@@ -24,6 +26,7 @@ interface Props {
 }
 
 export default function Sidebar({ agents, projects, selectedAgentId, selectedProjectId, typingAgents, onSelectAgent, onSelectProject, onNavigate, onNewAgent, onNewProject, onSettings, onCalendar, connected, mobileOpen, onMobileClose }: Props) {
+  const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const { user, platformUrl, license, logout } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -89,7 +92,7 @@ export default function Sidebar({ agents, projects, selectedAgentId, selectedPro
               <h1 className="text-[15px] font-semibold tracking-tight text-nebula-text">Nebula</h1>
             </div>
             <div className="flex items-center gap-2">
-              <div className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-nebula-green' : 'bg-nebula-red'}`} title={connected ? 'Connected' : 'Disconnected'} />
+              <div className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-nebula-green' : 'bg-nebula-red'}`} title={connected ? t('sidebar.connected') : t('sidebar.disconnected')} />
               <button onClick={onMobileClose} className="md:hidden p-1 text-nebula-muted hover:text-nebula-text">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
               </button>
@@ -101,7 +104,7 @@ export default function Sidebar({ agents, projects, selectedAgentId, selectedPro
 
           <input
             type="text"
-            placeholder="Search..."
+            placeholder={t('sidebar.searchPlaceholder')}
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full px-3 py-2 mt-2 text-[13px] bg-nebula-bg border border-nebula-border rounded-lg focus:outline-none focus:border-nebula-accent/50 text-nebula-text placeholder:text-nebula-muted/60 transition-colors"
@@ -111,7 +114,7 @@ export default function Sidebar({ agents, projects, selectedAgentId, selectedPro
         {/* Projects section */}
         {filteredProjects.length > 0 && (
           <div className="px-2 py-1">
-            <p className="text-[10px] uppercase tracking-wider text-nebula-muted/60 font-semibold px-3 mb-1">Projects</p>
+            <p className="text-[10px] uppercase tracking-wider text-nebula-muted/60 font-semibold px-3 mb-1">{t('sidebar.projects')}</p>
             {filteredProjects.map(proj => {
               const isSelected = proj.id === selectedProjectId;
               const progress = (proj.deliverable_count && proj.deliverables_done != null)
@@ -164,7 +167,7 @@ export default function Sidebar({ agents, projects, selectedAgentId, selectedPro
         )}
 
         {/* Agent list */}
-        <p className="text-[10px] uppercase tracking-wider text-nebula-muted/60 font-semibold px-5 mb-1">Agents</p>
+        <p className="text-[10px] uppercase tracking-wider text-nebula-muted/60 font-semibold px-5 mb-1">{t('sidebar.agents')}</p>
         <div className="flex-1 overflow-y-auto px-2 py-1">
           {filtered.map(agent => {
             const isSelected = agent.id === selectedAgentId;
@@ -195,16 +198,16 @@ export default function Sidebar({ agents, projects, selectedAgentId, selectedPro
                     </span>
                     {agent.execution_mode === 'remote' && (
                       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${(agent as any).remote_connected ? 'bg-nebula-green' : 'bg-nebula-muted/40'}`}
-                        title={(agent as any).remote_device_info?.hostname || 'Remote'} />
+                        title={(agent as any).remote_device_info?.hostname || t('sidebar.remoteTitle')} />
                     )}
                     {isTyping && (
-                      <span className="text-[10px] text-nebula-accent animate-pulse font-medium">typing</span>
+                      <span className="text-[10px] text-nebula-accent animate-pulse font-medium">{t('sidebar.typing')}</span>
                     )}
                   </div>
                   <p className="text-[11px] text-nebula-muted truncate mt-0.5">
                     {(agent as any).last_message
                       ? (agent as any).last_message.slice(0, 80)
-                      : agent.role || 'No messages yet'}
+                      : agent.role || t('sidebar.noMessagesYet')}
                   </p>
                 </div>
                 {unread > 0 && (
@@ -216,17 +219,17 @@ export default function Sidebar({ agents, projects, selectedAgentId, selectedPro
             );
           })}
           {filtered.length === 0 && !search && (
-            <p className="text-center text-nebula-muted text-sm py-12">No agents yet</p>
+            <p className="text-center text-nebula-muted text-sm py-12">{t('sidebar.noAgents')}</p>
           )}
           {search && filtered.length === 0 && filteredProjects.length === 0 && searchResults.length === 0 && !searching && (
-            <p className="text-center text-nebula-muted text-sm py-12">No results</p>
+            <p className="text-center text-nebula-muted text-sm py-12">{t('sidebar.noResults')}</p>
           )}
 
           {/* Message search results */}
           {search.trim().length >= 3 && (searchResults.length > 0 || searching) && (
             <div className="mt-2 pt-2 border-t border-nebula-border/50">
               <p className="text-[10px] uppercase tracking-wider text-nebula-muted/60 font-semibold px-3 mb-1">
-                {searching ? 'Searching...' : `Messages (${searchResults.length})`}
+                {searching ? t('sidebar.searching') : t('sidebar.messagesResultCount', { count: searchResults.length })}
               </p>
               {searchResults.map(r => (
                 <button
@@ -276,7 +279,7 @@ export default function Sidebar({ agents, projects, selectedAgentId, selectedPro
               className="w-full py-2 text-[13px] bg-nebula-accent text-nebula-bg rounded-lg hover:brightness-110 font-semibold transition-all shadow-glow flex items-center justify-center gap-1.5"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
-              New
+              {t('sidebar.new')}
             </button>
             {showNewMenu && (
               <>
@@ -286,13 +289,13 @@ export default function Sidebar({ agents, projects, selectedAgentId, selectedPro
                     onClick={() => { setShowNewMenu(false); onNewAgent(); }}
                     className="w-full text-left px-3 py-2 text-[12px] text-nebula-text hover:bg-nebula-hover transition-colors flex items-center gap-2"
                   >
-                    <span className="text-nebula-accent">+</span> Agent
+                    <span className="text-nebula-accent">+</span> {t('sidebar.newAgent')}
                   </button>
                   <button
                     onClick={() => { setShowNewMenu(false); onNewProject(); }}
                     className="w-full text-left px-3 py-2 text-[12px] text-nebula-text hover:bg-nebula-hover transition-colors flex items-center gap-2"
                   >
-                    <span className="text-nebula-accent">+</span> Project
+                    <span className="text-nebula-accent">+</span> {t('sidebar.newProject')}
                   </button>
                 </div>
               </>
@@ -301,14 +304,14 @@ export default function Sidebar({ agents, projects, selectedAgentId, selectedPro
           <button
             onClick={onCalendar}
             className="p-2 bg-nebula-surface-2 border border-nebula-border rounded-lg hover:bg-nebula-hover hover:border-nebula-border-light transition-colors text-nebula-muted"
-            title="Task Calendar"
+            title={t('sidebar.taskCalendar')}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
           </button>
           <button
             onClick={onSettings}
             className="p-2 bg-nebula-surface-2 border border-nebula-border rounded-lg hover:bg-nebula-hover hover:border-nebula-border-light transition-colors text-nebula-muted"
-            title="Settings"
+            title={t('sidebar.settings')}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
@@ -338,7 +341,7 @@ export default function Sidebar({ agents, projects, selectedAgentId, selectedPro
                         onClick={() => setShowUserMenu(false)}
                         className="block w-full text-left px-3 py-2 text-[12px] text-nebula-text hover:bg-nebula-hover transition-colors"
                       >
-                        Account Settings
+                        {t('sidebar.accountSettings')}
                       </a>
                       <a
                         href={`${platformUrl}/pricing`}
@@ -347,21 +350,24 @@ export default function Sidebar({ agents, projects, selectedAgentId, selectedPro
                         onClick={() => setShowUserMenu(false)}
                         className="block w-full text-left px-3 py-2 text-[12px] text-nebula-accent hover:bg-nebula-hover transition-colors"
                       >
-                        Upgrade Plan
+                        {t('sidebar.upgradePlan')}
                       </a>
                     </>
                   )}
+                  <div className="px-3 py-2 border-t border-nebula-border">
+                    <LanguageSwitcher />
+                  </div>
                   <button
                     onClick={() => { setShowUserMenu(false); setShowFeedback(true); }}
                     className="w-full text-left px-3 py-2 text-[12px] text-nebula-text hover:bg-nebula-hover transition-colors"
                   >
-                    Send Feedback
+                    {t('sidebar.sendFeedback')}
                   </button>
                   <button
                     onClick={() => { setShowUserMenu(false); logout(); }}
                     className="w-full text-left px-3 py-2 text-[12px] text-red-400 hover:bg-nebula-hover transition-colors"
                   >
-                    Sign Out
+                    {t('sidebar.signOut')}
                   </button>
                 </div>
               </>

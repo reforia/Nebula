@@ -1,0 +1,60 @@
+{
+  "auth": {
+    "alreadyHaveAccount": "已经有账号？",
+    "createAccount": "创建账号",
+    "createNewAccount": "创建一个新的 Nebula 账号",
+    "createOnEnigma": "在 Enigma 上创建账号",
+    "creating": "创建中...",
+    "email": "邮箱",
+    "enterCredentials": "请输入登录信息",
+    "errors": {
+      "access_denied": "访问被拒绝，请重试。",
+      "authentication_failed": "认证失败，请重试。",
+      "exchange_failed": "无法完成登录，平台可能暂时不可用。",
+      "generic": "认证错误：{{code}}",
+      "invalid_userinfo": "无法获取您的账号信息。",
+      "state_mismatch": "认证失败 — 请重试。"
+    },
+    "initiateFailed": "无法启动登录流程",
+    "loginFailed": "登录失败",
+    "managedByEnigma": "Nebula 账号由 Enigma 平台管理",
+    "name": "姓名",
+    "noAccount": "还没有账号？",
+    "password": "密码",
+    "passwordHint": "密码（至少 8 位）",
+    "redirecting": "跳转中...",
+    "registerTitle": "创建账号",
+    "registrationFailed": "注册失败",
+    "signIn": "登录",
+    "signingIn": "登录中...",
+    "signInTitle": "登录 Nebula",
+    "signInWithEnigma": "使用 Enigma 登录",
+    "useEnigmaAccount": "使用您的 Enigma 平台账号"
+  },
+  "common": {
+    "language": "语言"
+  },
+  "sidebar": {
+    "accountSettings": "账号设置",
+    "agents": "智能体",
+    "connected": "已连接",
+    "disconnected": "未连接",
+    "messagesResultCount_other": "消息 ({{count}})",
+    "new": "新建",
+    "newAgent": "智能体",
+    "newProject": "项目",
+    "noAgents": "暂无智能体",
+    "noMessagesYet": "暂无消息",
+    "noResults": "无结果",
+    "projects": "项目",
+    "remoteTitle": "远程",
+    "searching": "搜索中...",
+    "searchPlaceholder": "搜索...",
+    "sendFeedback": "发送反馈",
+    "settings": "设置",
+    "signOut": "退出登录",
+    "taskCalendar": "任务日历",
+    "typing": "输入中",
+    "upgradePlan": "升级套餐"
+  }
+}

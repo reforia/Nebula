@@ -1,17 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { getLoginUrl, login as apiLogin, getSetupStatus } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 
-const ERROR_MESSAGES: Record<string, string> = {
-  state_mismatch: 'Authentication failed — please try again.',
-  exchange_failed: 'Could not complete sign-in. The platform may be temporarily unavailable.',
-  authentication_failed: 'Authentication failed. Please try again.',
-  invalid_userinfo: 'Could not retrieve your account information.',
-  access_denied: 'Access was denied. Please try again.',
-};
-
 export default function Login() {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [authProvider, setAuthProvider] = useState<'local' | 'enigma' | null>(null);
@@ -23,13 +17,24 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
+  const resolveAuthError = (code: string): string => {
+    switch (code) {
+      case 'state_mismatch': return t('auth.errors.state_mismatch');
+      case 'exchange_failed': return t('auth.errors.exchange_failed');
+      case 'authentication_failed': return t('auth.errors.authentication_failed');
+      case 'invalid_userinfo': return t('auth.errors.invalid_userinfo');
+      case 'access_denied': return t('auth.errors.access_denied');
+      default: return t('auth.errors.generic', { code });
+    }
+  };
+
   useEffect(() => {
     const errorCode = searchParams.get('error');
     if (errorCode) {
-      setError(ERROR_MESSAGES[errorCode] || `Authentication error: ${errorCode}`);
+      setError(resolveAuthError(errorCode));
     }
     getSetupStatus().then(s => setAuthProvider(s.authProvider)).catch(() => setAuthProvider('local'));
-  }, [searchParams]);
+  }, [searchParams, t]);
 
   const handleOAuthLogin = async () => {
     setLoading(true);
@@ -39,7 +44,7 @@ export default function Login() {
       setPlatformUrl(data.platformUrl);
       window.location.href = data.url;
     } catch (err: any) {
-      setError(err.message || 'Failed to initiate sign-in');
+      setError(err.message || t('auth.initiateFailed'));
       setLoading(false);
     }
   };
@@ -52,7 +57,7 @@ export default function Login() {
       await apiLogin(email, password);
       await refresh();
     } catch (err: any) {
-      setError(err.message || 'Login failed');
+      setError(err.message || t('auth.loginFailed'));
       setLoading(false);
     }
   };
@@ -68,12 +73,12 @@ export default function Login() {
           </div>
         </div>
         <div className="p-6 sm:p-8 bg-nebula-surface rounded-2xl border border-nebula-border">
-          <h1 className="text-xl font-semibold mb-1 text-center">Sign in to Nebula</h1>
+          <h1 className="text-xl font-semibold mb-1 text-center">{t('auth.signInTitle')}</h1>
 
           {authProvider === 'enigma' ? (
             <>
               <p className="text-nebula-muted text-sm mb-6 text-center">
-                Use your Enigma Platform account
+                {t('auth.useEnigmaAccount')}
               </p>
 
               {error && <p role="alert" className="text-nebula-red text-sm mb-4 text-center">{error}</p>}
@@ -83,11 +88,11 @@ export default function Login() {
                 disabled={loading}
                 className="w-full p-3 bg-nebula-accent text-nebula-bg rounded-xl font-semibold text-sm hover:brightness-110 disabled:opacity-50 transition-all shadow-glow"
               >
-                {loading ? 'Redirecting...' : 'Sign in with Enigma'}
+                {loading ? t('auth.redirecting') : t('auth.signInWithEnigma')}
               </button>
 
               <p className="text-nebula-muted text-sm mt-4 text-center">
-                Don't have an account?{' '}
+                {t('auth.noAccount')}{' '}
                 <a
                   href={platformUrl ? `${platformUrl}/auth/register` : '#'}
                   onClick={async (e) => {
@@ -103,14 +108,14 @@ export default function Login() {
                   rel="noopener noreferrer"
                   className="text-nebula-accent hover:underline"
                 >
-                  Create an account
+                  {t('auth.createAccount')}
                 </a>
               </p>
             </>
           ) : (
             <>
               <p className="text-nebula-muted text-sm mb-6 text-center">
-                Enter your credentials
+                {t('auth.enterCredentials')}
               </p>
 
               {error && <p role="alert" className="text-nebula-red text-sm mb-4 text-center">{error}</p>}
@@ -118,7 +123,7 @@ export default function Login() {
               <form onSubmit={handleLocalLogin} className="space-y-3">
                 <input
                   type="email"
-                  placeholder="Email"
+                  placeholder={t('auth.email')}
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   required
@@ -127,7 +132,7 @@ export default function Login() {
                 />
                 <input
                   type="password"
-                  placeholder="Password"
+                  placeholder={t('auth.password')}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   required
@@ -138,14 +143,14 @@ export default function Login() {
                   disabled={loading}
                   className="w-full p-3 bg-nebula-accent text-nebula-bg rounded-xl font-semibold text-sm hover:brightness-110 disabled:opacity-50 transition-all shadow-glow"
                 >
-                  {loading ? 'Signing in...' : 'Sign in'}
+                  {loading ? t('auth.signingIn') : t('auth.signIn')}
                 </button>
               </form>
 
               <p className="text-nebula-muted text-sm mt-4 text-center">
-                Don't have an account?{' '}
+                {t('auth.noAccount')}{' '}
                 <Link to="/register" className="text-nebula-accent hover:underline">
-                  Create an account
+                  {t('auth.createAccount')}
                 </Link>
               </p>
             </>

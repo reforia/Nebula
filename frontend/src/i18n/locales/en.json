@@ -1,0 +1,61 @@
+{
+  "auth": {
+    "alreadyHaveAccount": "Already have an account?",
+    "createAccount": "Create an account",
+    "createNewAccount": "Create a new Nebula account",
+    "createOnEnigma": "Create account on Enigma",
+    "creating": "Creating account...",
+    "email": "Email",
+    "enterCredentials": "Enter your credentials",
+    "errors": {
+      "access_denied": "Access was denied. Please try again.",
+      "authentication_failed": "Authentication failed. Please try again.",
+      "exchange_failed": "Could not complete sign-in. The platform may be temporarily unavailable.",
+      "generic": "Authentication error: {{code}}",
+      "invalid_userinfo": "Could not retrieve your account information.",
+      "state_mismatch": "Authentication failed — please try again."
+    },
+    "initiateFailed": "Failed to initiate sign-in",
+    "loginFailed": "Login failed",
+    "managedByEnigma": "Nebula accounts are managed by the Enigma Platform",
+    "name": "Name",
+    "noAccount": "Don't have an account?",
+    "password": "Password",
+    "passwordHint": "Password (min 8 characters)",
+    "redirecting": "Redirecting...",
+    "registerTitle": "Create Account",
+    "registrationFailed": "Registration failed",
+    "signIn": "Sign in",
+    "signingIn": "Signing in...",
+    "signInTitle": "Sign in to Nebula",
+    "signInWithEnigma": "Sign in with Enigma",
+    "useEnigmaAccount": "Use your Enigma Platform account"
+  },
+  "common": {
+    "language": "Language"
+  },
+  "sidebar": {
+    "accountSettings": "Account Settings",
+    "agents": "Agents",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "messagesResultCount_one": "Messages ({{count}})",
+    "messagesResultCount_other": "Messages ({{count}})",
+    "new": "New",
+    "newAgent": "Agent",
+    "newProject": "Project",
+    "noAgents": "No agents yet",
+    "noMessagesYet": "No messages yet",
+    "noResults": "No results",
+    "projects": "Projects",
+    "remoteTitle": "Remote",
+    "searching": "Searching...",
+    "searchPlaceholder": "Search...",
+    "sendFeedback": "Send Feedback",
+    "settings": "Settings",
+    "signOut": "Sign Out",
+    "taskCalendar": "Task Calendar",
+    "typing": "typing",
+    "upgradePlan": "Upgrade Plan"
+  }
+}

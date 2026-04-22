@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { getLoginUrl, register as apiRegister, getSetupStatus } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Register() {
+  const { t } = useTranslation();
   const [authProvider, setAuthProvider] = useState<'local' | 'enigma' | null>(null);
-  const [platformUrl, setPlatformUrl] = useState('');
   const { refresh } = useAuth();
 
   // Local registration form
@@ -22,7 +23,6 @@ export default function Register() {
   const handleOAuthRegister = async () => {
     try {
       const data = await getLoginUrl();
-      setPlatformUrl(data.platformUrl);
       window.open(`${data.platformUrl}/auth/register`, '_blank');
     } catch {}
   };
@@ -35,7 +35,7 @@ export default function Register() {
       await apiRegister(email, password, name);
       await refresh();
     } catch (err: any) {
-      setError(err.message || 'Registration failed');
+      setError(err.message || t('auth.registrationFailed'));
       setLoading(false);
     }
   };
@@ -51,24 +51,24 @@ export default function Register() {
           </div>
         </div>
         <div className="p-6 sm:p-8 bg-nebula-surface rounded-2xl border border-nebula-border">
-          <h1 className="text-xl font-semibold mb-1 text-center">Create Account</h1>
+          <h1 className="text-xl font-semibold mb-1 text-center">{t('auth.registerTitle')}</h1>
 
           {authProvider === 'enigma' ? (
             <>
               <p className="text-nebula-muted text-sm mb-6 text-center">
-                Nebula accounts are managed by the Enigma Platform
+                {t('auth.managedByEnigma')}
               </p>
               <button
                 onClick={handleOAuthRegister}
                 className="w-full p-3 bg-nebula-accent text-nebula-bg rounded-xl font-semibold text-sm hover:brightness-110 transition-all shadow-glow"
               >
-                Create account on Enigma
+                {t('auth.createOnEnigma')}
               </button>
             </>
           ) : (
             <>
               <p className="text-nebula-muted text-sm mb-6 text-center">
-                Create a new Nebula account
+                {t('auth.createNewAccount')}
               </p>
 
               {error && <p role="alert" className="text-nebula-red text-sm mb-4 text-center">{error}</p>}
@@ -76,7 +76,7 @@ export default function Register() {
               <form onSubmit={handleLocalRegister} className="space-y-3">
                 <input
                   type="text"
-                  placeholder="Name"
+                  placeholder={t('auth.name')}
                   value={name}
                   onChange={e => setName(e.target.value)}
                   autoFocus
@@ -84,7 +84,7 @@ export default function Register() {
                 />
                 <input
                   type="email"
-                  placeholder="Email"
+                  placeholder={t('auth.email')}
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   required
@@ -92,7 +92,7 @@ export default function Register() {
                 />
                 <input
                   type="password"
-                  placeholder="Password (min 8 characters)"
+                  placeholder={t('auth.passwordHint')}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   required
@@ -104,15 +104,15 @@ export default function Register() {
                   disabled={loading}
                   className="w-full p-3 bg-nebula-accent text-nebula-bg rounded-xl font-semibold text-sm hover:brightness-110 disabled:opacity-50 transition-all shadow-glow"
                 >
-                  {loading ? 'Creating account...' : 'Create Account'}
+                  {loading ? t('auth.creating') : t('auth.registerTitle')}
                 </button>
               </form>
             </>
           )}
 
           <p className="text-nebula-muted text-sm mt-4 text-center">
-            Already have an account?{' '}
-            <Link to="/login" className="text-nebula-accent hover:underline">Sign in</Link>
+            {t('auth.alreadyHaveAccount')}{' '}
+            <Link to="/login" className="text-nebula-accent hover:underline">{t('auth.signIn')}</Link>
           </p>
         </div>
       </div>
