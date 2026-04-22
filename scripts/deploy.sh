@@ -45,6 +45,7 @@ echo "[2/4] Packaging..."
 tar czf /tmp/nebula-deploy.tar.gz \
   --exclude=node_modules --exclude=data --exclude=.git --exclude=.gitea \
   --exclude=frontend/node_modules --exclude=.claude --exclude='*.tsbuildinfo' \
+  --exclude=agent-app/src-tauri/target \
   --exclude=.env --exclude=docker-compose.override.yml .
 
 echo "[3/4] Uploading to server..."
