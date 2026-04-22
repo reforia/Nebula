@@ -80,6 +80,10 @@ app.use((req, res, next) => {
   next();
 });
 
+// Liveness probe — kept above jwtMiddleware and rate limiters so Docker
+// healthchecks don't consume the /api/auth budget.
+app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
 app.use(jwtMiddleware);
 
 // Public routes (no auth required)

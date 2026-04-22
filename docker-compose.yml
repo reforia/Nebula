@@ -28,7 +28,7 @@ services:
       - OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI:-}
       - PLATFORM_URL=${PLATFORM_URL:-}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/auth/me"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
