@@ -73,6 +73,27 @@ describe('System API', () => {
       assert.equal(getOrgSetting(orgId, 'cron_enabled'), '1');
     });
 
+    it('does not overwrite runtime default from generic settings saves', async () => {
+      const runtimeRes = await request(app, 'PUT', '/api/runtimes/default', {
+        cookie,
+        body: { runtime: 'codex' },
+      });
+      assert.equal(runtimeRes.status, 200);
+      assert.equal(getOrgSetting(orgId, 'default_runtime'), 'codex');
+
+      const settingsRes = await request(app, 'PUT', '/api/settings', {
+        cookie,
+        body: {
+          default_runtime: 'claude-cli',
+          default_timeout_ms: '300000',
+        },
+      });
+      assert.equal(settingsRes.status, 200);
+
+      assert.equal(getOrgSetting(orgId, 'default_runtime'), 'codex');
+      assert.equal(getOrgSetting(orgId, 'default_timeout_ms'), '300000');
+    });
+
     it('returns cron_enabled in GET settings', async () => {
       setOrgSetting(orgId, 'cron_enabled', '0');
       const res = await request(app, 'GET', '/api/settings', { cookie });
